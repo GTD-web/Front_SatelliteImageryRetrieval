@@ -145,10 +145,11 @@ export const MOCK_SCENES: HifiScene[] = [
     },
 ];
 
-/** Default AOI 링 (Pohang 해안) — 검색 페이지 초기 AOI 로 사용 */
+/** Default AOI 링 (Pohang 해안) — 검색 페이지 초기 AOI 로 사용. 축에 정렬된 직사각형. */
 export const MOCK_DEFAULT_AOI: Array<[number, number]> = [
-    [129.25, 35.95],
-    [129.52, 35.94],
-    [129.54, 36.12],
-    [129.27, 36.13],
+    [129.25, 35.94],
+    [129.54, 35.94],
+    [129.54, 36.13],
+    [129.25, 36.13],
+    [129.25, 35.94],
 ];

@@ -22,7 +22,7 @@ export interface RouteDef {
 export const userRoutes: RouteDef[] = [
     { href: '/plan/sar/user/search', label: '검색', icon: Search },
     { href: '/plan/sar/user/downloads', label: '다운로드', icon: Download },
-    { href: '/plan/sar/user/public-datasets', label: '공공데이터', icon: Database },
+    { href: '/plan/sar/user/aois', label: 'AOI 관리', icon: Map },
     { href: '/plan/sar/user/notifications', label: '알림', icon: Bell },
 ];
 

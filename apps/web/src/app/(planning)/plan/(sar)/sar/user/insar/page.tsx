@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
     CartesianGrid,
     Legend,
@@ -24,8 +26,14 @@ import {
     useToast,
     type MapFootprint,
     type MapPoint,
+    type MapRasterOverlay,
     type MapTool,
+    type MapVelocityLegend,
 } from '@/_ui/hifi';
+
+import { aoiToRing, useSavedAois, type SavedAoi } from '@/_shared/contexts/SavedAoisContext';
+import { LoadAoiMenu, SaveAoiButton } from '../../_components/SavedAoiControls';
+import { RequestTimelinePanel } from '../../_components/SceneTimelinePanel';
 
 // ────────────────────────────────────────────────────────────────────────────
 // 결과(완료된 산출물) 모킹 데이터
@@ -166,6 +174,14 @@ const PRODUCT_CENTERS: Record<string, [number, number]> = {
     ulleung: [130.9, 37.49],
 };
 
+/** 산출물 미리보기 raster 가 깔리는 lon/lat 사각형. 중심 ± 약 25/18km 패치. */
+function productExtent(productId: string): [number, number, number, number] {
+    const [lon, lat] = PRODUCT_CENTERS[productId] ?? [129.37, 36.02];
+    const dLon = 0.25;
+    const dLat = 0.18;
+    return [lon - dLon, lat - dLat, lon + dLon, lat + dLat];
+}
+
 type Layer = 'mean_velocity' | 'coherence' | 'cumulative_disp' | 'wrapped_phase';
 
 const LAYER_META: Record<Layer, { unit: string; label: string }> = {
@@ -175,6 +191,14 @@ const LAYER_META: Record<Layer, { unit: string; label: string }> = {
     wrapped_phase: { unit: 'rad', label: 'wrapped_phase' },
 };
 
+/** 레이어 전환 시 범위 입력을 단위에 맞춰 자동 재설정한다. */
+const LAYER_DEFAULT_RANGE: Record<Layer, [number, number]> = {
+    mean_velocity: [-30, 30],
+    coherence: [0, 1],
+    cumulative_disp: [-50, 50],
+    wrapped_phase: [-3.14, 3.14],
+};
+
 type Colormap = 'RdBu' | 'viridis' | 'magma';
 
 const COLORMAP_GRADIENTS: Record<Colormap, string> = {
@@ -182,6 +206,107 @@ const COLORMAP_GRADIENTS: Record<Colormap, string> = {
     viridis: 'linear-gradient(to right, #440154, #3b528b, #21918c, #5ec962, #fde725)',
     magma: 'linear-gradient(to right, #000004, #51127c, #b73779, #fc8961, #fcfdbf)',
 };
+
+const COLORMAP_STOPS: Record<Colormap, Array<[number, number, number]>> = {
+    RdBu: [hex('#2563eb'), hex('#60a5fa'), hex('#f1f5f9'), hex('#fb923c'), hex('#dc2626')],
+    viridis: [hex('#440154'), hex('#3b528b'), hex('#21918c'), hex('#5ec962'), hex('#fde725')],
+    magma: [hex('#000004'), hex('#51127c'), hex('#b73779'), hex('#fc8961'), hex('#fcfdbf')],
+};
+
+function hex(s: string): [number, number, number] {
+    const v = parseInt(s.slice(1), 16);
+    return [(v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff];
+}
+
+function sampleColormap(cm: Colormap, t: number): [number, number, number] {
+    const stops = COLORMAP_STOPS[cm];
+    const u = t < 0 ? 0 : t > 1 ? 1 : t;
+    const seg = u * (stops.length - 1);
+    const i = Math.floor(seg);
+    const f = seg - i;
+    const a = stops[i] ?? stops[0]!;
+    const b = stops[Math.min(stops.length - 1, i + 1)] ?? a;
+    return [
+        Math.round(a[0] + (b[0] - a[0]) * f),
+        Math.round(a[1] + (b[1] - a[1]) * f),
+        Math.round(a[2] + (b[2] - a[2]) * f),
+    ];
+}
+
+/** 산출물 미리보기 레이어를 합성한다. 실제 InSAR 산출물 대신 시각적 데모용 패턴을 그린다.
+ *  레이어/컬러맵/범위 변화에 반응해서 지도 위 오버레이 외관이 즉각 변하도록 의도. */
+function buildInsarRaster(opts: {
+    productId: string;
+    layer: Layer;
+    colormap: Colormap;
+    rangeMin: number;
+    rangeMax: number;
+}): string | null {
+    if (typeof document === 'undefined') return null;
+    const { productId, layer, colormap, rangeMin, rangeMax } = opts;
+    const W = 256;
+    const H = 256;
+    const cv = document.createElement('canvas');
+    cv.width = W;
+    cv.height = H;
+    const ctx = cv.getContext('2d');
+    if (!ctx) return null;
+    const img = ctx.createImageData(W, H);
+    let seed = 1;
+    for (const c of productId) seed = (seed * 31 + c.charCodeAt(0)) >>> 0;
+    const sx = ((seed & 0xff) / 255 - 0.5) * 0.1;
+    const sy = (((seed >> 8) & 0xff) / 255 - 0.5) * 0.1;
+    const lo = Math.min(rangeMin, rangeMax);
+    const hi = Math.max(rangeMin, rangeMax);
+    const span = Math.max(1e-6, hi - lo);
+    for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+            const nx = x / W;
+            const ny = y / H;
+            const dx = nx - 0.5 + sx;
+            const dy = ny - 0.5 + sy;
+            const r = Math.hypot(dx, dy);
+            const noise =
+                (Math.sin((nx * 12 + (seed & 7)) * Math.PI) +
+                    Math.sin((ny * 9 + ((seed >> 4) & 7)) * Math.PI) +
+                    Math.sin(((nx + ny) * 18 + ((seed >> 8) & 7)) * Math.PI)) /
+                3;
+            let v: number;
+            switch (layer) {
+                case 'mean_velocity': {
+                    const base = (lo + hi) / 2;
+                    v = base + (hi - lo) * 0.5 * (-Math.exp(-r * 4) * 1.4 + noise * 0.3);
+                    break;
+                }
+                case 'cumulative_disp': {
+                    const base = (lo + hi) / 2;
+                    v = base + (hi - lo) * 0.5 * (-Math.exp(-r * 3.4) * 1.6 + noise * 0.25);
+                    break;
+                }
+                case 'coherence': {
+                    v = 0.55 + noise * 0.35 - r * 0.5;
+                    break;
+                }
+                case 'wrapped_phase': {
+                    const ph = (((nx * 14 + ny * 8 + r * 18 + noise * 2) % 2) + 2) % 2 - 1;
+                    v = ph * Math.PI;
+                    break;
+                }
+                default:
+                    v = 0;
+            }
+            const t = (v - lo) / span;
+            const [rr, gg, bb] = sampleColormap(colormap, t);
+            const i = (y * W + x) * 4;
+            img.data[i] = rr;
+            img.data[i + 1] = gg;
+            img.data[i + 2] = bb;
+            img.data[i + 3] = 235;
+        }
+    }
+    ctx.putImageData(img, 0, 0);
+    return cv.toDataURL('image/png');
+}
 
 const typeBadge = (t: InsarProduct['type']) =>
     t === 'DInSAR' ? 'badge--info' : t === 'SBAS' ? 'badge--warning' : 'badge--brand2';
@@ -431,7 +556,20 @@ function generateAvailableScenes(form: RequestForm): AvailableScene[] {
 // ────────────────────────────────────────────────────────────────────────────
 
 export default function InsarPage() {
+    // useSearchParams 가 SSR 시 Suspense 경계를 요구. 페이지 본체를 별도 컴포넌트로 감싸 처리.
+    return (
+        <Suspense fallback={null}>
+            <InsarPageInner />
+        </Suspense>
+    );
+}
+
+function InsarPageInner() {
     const toast = useToast();
+    const router = useRouter();
+    const pathname = usePathname();
+    const searchParams = useSearchParams();
+    const { getById: getSavedAoiById } = useSavedAois();
     const [tab, setTab] = useState<Tab>('request');
 
     // 결과 모드 상태
@@ -452,9 +590,38 @@ export default function InsarPage() {
     // 요청 모드 상태
     const [request, setRequest] = useState<RequestForm>(() => buildDefaultRequest());
     const [selectedSceneIds, setSelectedSceneIds] = useState<Set<string>>(() => new Set());
+    /** 저장된 AOI 메뉴에서 호버 중인 항목. 지도에 임시로 그려지지만 폼/요청 상태는 변하지 않음. */
+    const [previewAoi, setPreviewAoi] = useState<SavedAoi | null>(null);
+    /** MapCanvas 의 fit 트리거 — 변경 시 AOI/풋프린트에 맞춰 줌인 애니메이션. */
+    const [fitKey, setFitKey] = useState('init');
+
+    // ?aoi=<savedAoiId> 로 진입한 경우 라이브러리에서 찾아 폼에 적용. mount 1 회만 실행.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => {
+        const aoiParam = searchParams?.get('aoi');
+        if (!aoiParam) return;
+        const found = getSavedAoiById(aoiParam);
+        if (!found) {
+            toast('저장된 AOI 를 찾을 수 없습니다', { tone: 'warning' });
+        } else {
+            setRequest((f) => ({
+                ...f,
+                nwLat: found.nwLat.toFixed(4),
+                nwLon: found.nwLon.toFixed(4),
+                seLat: found.seLat.toFixed(4),
+                seLon: found.seLon.toFixed(4),
+            }));
+            setSelectedSceneIds(new Set());
+            setTab('request');
+            setFitKey(`fit-aoi-${found.id}-${Date.now()}`);
+            toast(`"${found.name}" 적용됨`, { tone: 'success' });
+        }
+        if (pathname) router.replace(pathname);
+    }, []);
     const [submitting, setSubmitting] = useState(false);
     const [activeTool, setActiveTool] = useState<MapTool | undefined>(undefined);
     const [hoveredSceneId, setHoveredSceneId] = useState<string | null>(null);
+    const [pickerOpen, setPickerOpen] = useState(true);
     // 기간/AOI/미션이 바뀌면 사용 가능한 scene 을 다시 가져오는 척 — 지도 위에 로딩 오버레이.
     // 핸들 드래그처럼 deps 가 빠르게 연속 변하는 동안에는 오버레이가 깜빡이지 않아야 하므로
     // 마지막 변경 후 300ms 동안 잠잠해야 비로소 로딩이 떠야 한다 (debounce on entry).
@@ -646,8 +813,59 @@ export default function InsarPage() {
         [points],
     );
 
-    const mapAoi = tab === 'request' ? requestAoi : null;
-    const mapFootprints = tab === 'request' ? requestFootprints : [];
+    /** 결과 탭 산출물 미리보기 raster. 레이어/컬러맵/범위 변화에 즉시 재생성된다.
+     *  opacity 변경은 src 재계산을 유발하지 않도록 별도 메모. */
+    const rasterSrc = useMemo(() => {
+        if (tab !== 'results') return null;
+        return buildInsarRaster({
+            productId: product.id,
+            layer,
+            colormap,
+            rangeMin,
+            rangeMax,
+        });
+    }, [tab, product.id, layer, colormap, rangeMin, rangeMax]);
+
+    const mapRaster = useMemo<MapRasterOverlay | null>(() => {
+        if (tab !== 'results' || !rasterSrc) return null;
+        return {
+            src: rasterSrc,
+            extent: productExtent(product.id),
+            opacity: opacity / 100,
+        };
+    }, [tab, rasterSrc, product.id, opacity]);
+
+    // 결과 탭에 들어오거나 산출물을 바꾸면 지도 뷰를 그 산출물에 맞춰 zoom-fit.
+    useEffect(() => {
+        if (tab !== 'results') return;
+        setFitKey(`fit-product-${product.id}-${Date.now()}`);
+    }, [tab, product.id]);
+
+    /** 지도 우상단 범례 외관 — 현재 layer/colormap/range 와 동기화. */
+    const mapLegend = useMemo<MapVelocityLegend | undefined>(() => {
+        if (tab !== 'results') return undefined;
+        const meta = LAYER_META[layer];
+        const fmt = (n: number) =>
+            Number.isInteger(n) ? n.toString() : n.toFixed(Math.abs(n) < 1 ? 2 : 1);
+        const lo = Math.min(rangeMin, rangeMax);
+        const hi = Math.max(rangeMin, rangeMax);
+        const mid = (lo + hi) / 2;
+        return {
+            title: `${meta.label} (${meta.unit})`,
+            gradient: COLORMAP_GRADIENTS[colormap],
+            min: fmt(lo),
+            mid: fmt(mid),
+            max: hi >= 0 ? `+${fmt(hi)}` : fmt(hi),
+        };
+    }, [tab, layer, colormap, rangeMin, rangeMax]);
+
+    // 미리보기 중에는 폼에서 파생된 AOI 대신 호버 중인 저장 AOI 를 표시. 풋프린트도 임시로 비움.
+    const mapAoi = previewAoi
+        ? aoiToRing(previewAoi)
+        : tab === 'request'
+            ? requestAoi
+            : null;
+    const mapFootprints = previewAoi || tab !== 'request' ? [] : requestFootprints;
     const mapPointsList = tab === 'results' ? resultsPoints : [];
     const mapOnClick = tab === 'results' ? (coord: [number, number]) => addPointAt(coord[0], coord[1]) : undefined;
 
@@ -830,6 +1048,20 @@ export default function InsarPage() {
                             onSubmit={submitRequest}
                             onReset={resetRequest}
                             dinsarOverlap={dinsarOverlap}
+                            onAoiHover={(a) => {
+                                setPreviewAoi((prev) => {
+                                    if (a) {
+                                        setFitKey(`preview-${a.id}-${Date.now()}`);
+                                        return a;
+                                    }
+                                    if (prev) setFitKey(`back-${Date.now()}`);
+                                    return null;
+                                });
+                            }}
+                            onAoiApplied={(a) => {
+                                setPreviewAoi(null);
+                                setFitKey(`fit-aoi-${a.id}-${Date.now()}`);
+                            }}
                         />
                     ) : (
                         <ResultsSidebar
@@ -838,9 +1070,19 @@ export default function InsarPage() {
                             typeFilter={typeFilter}
                             onTypeFilter={setTypeFilter}
                             selected={selected}
-                            onSelect={setSelected}
+                            onSelect={(id) => {
+                                if (id === selected) return;
+                                setSelected(id);
+                                // 다른 산출물의 시계열 점은 위치가 새 분석 영역과 무관하므로 초기화.
+                                setPoints([]);
+                            }}
                             layer={layer}
-                            onLayerChange={setLayer}
+                            onLayerChange={(l) => {
+                                setLayer(l);
+                                const [lo, hi] = LAYER_DEFAULT_RANGE[l];
+                                setRangeMin(lo);
+                                setRangeMax(hi);
+                            }}
                             colormap={colormap}
                             onColormapChange={setColormap}
                             opacity={opacity}
@@ -862,28 +1104,32 @@ export default function InsarPage() {
                 </aside>
 
                 <div className="split__main">
-                    <div style={{ flex: 1, position: 'relative', minHeight: 200 }}>
+                    <div style={{ flex: 1, position: 'relative', minHeight: 200, isolation: 'isolate' }}>
                         <MapCanvas
                             center={initialCenter}
                             zoom={10}
                             aoi={mapAoi}
                             footprints={mapFootprints}
                             points={mapPointsList}
+                            raster={mapRaster}
                             onMapClick={mapOnClick}
                             showLegend={tab === 'results'}
                             legend="velocity"
+                            legendOptions={mapLegend}
                             tools={tab === 'request' ? ['bbox'] : []}
                             activeTool={tab === 'request' ? activeTool : undefined}
                             onToolSelect={tab === 'request' ? setActiveTool : undefined}
                             onDrawEnd={tab === 'request' ? handleMapDrawEnd : undefined}
-                            onAoiChange={tab === 'request' ? handleMapAoiEdit : undefined}
+                            // preview 중에는 사용자가 지도에서 AOI 를 드래그/리사이즈해도 무시 — 호버를 떼면 본 AOI 로 복귀.
+                            onAoiChange={tab === 'request' && !previewAoi ? handleMapAoiEdit : undefined}
+                            fitKey={fitKey}
                         >
                             {tab === 'request' ? (
                                 <div
                                     style={{
                                         position: 'absolute',
-                                        top: 12,
-                                        right: 56,
+                                        bottom: 12,
+                                        left: 12,
                                         padding: '6px 10px',
                                         background: 'var(--bg-2)',
                                         border: '1px solid var(--border-default)',
@@ -938,7 +1184,7 @@ export default function InsarPage() {
                                     style={{
                                         position: 'absolute',
                                         top: 12,
-                                        right: 56,
+                                        left: 12,
                                         padding: '6px 12px',
                                         background: 'var(--bg-2)',
                                         border: '1px solid var(--border-default)',
@@ -948,6 +1194,8 @@ export default function InsarPage() {
                                         pointerEvents: 'none',
                                         zIndex: 3,
                                         whiteSpace: 'nowrap',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
                                     }}
                                 >
                                     <Icon name="mapPin" size={11} style={{ marginRight: 6, opacity: 0.6 }} />
@@ -1022,6 +1270,63 @@ export default function InsarPage() {
                                 <span>사용 가능한 scene 가져오는 중…</span>
                             </div>
                         </div>
+                        {/* scene 선택 패널 (request 탭) — 우측에서 슬라이드, 닫혔을 땐 토글 버튼만 노출. */}
+                        {tab === 'request' ? (
+                            <>
+                                {!pickerOpen ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => setPickerOpen(true)}
+                                        style={{
+                                            position: 'absolute',
+                                            top: 12,
+                                            right: 12,
+                                            zIndex: 7,
+                                            padding: '8px 12px',
+                                            background: 'var(--bg-2)',
+                                            border: '1px solid var(--border-default)',
+                                            borderRadius: 6,
+                                            fontSize: 12.5,
+                                            fontWeight: 500,
+                                            color: 'var(--text-primary)',
+                                            cursor: 'pointer',
+                                            boxShadow: 'var(--shadow-md)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 6,
+                                        }}
+                                    >
+                                        <Icon name="chart" size={13} />
+                                        scene 선택{' '}
+                                        <span
+                                            className="mono tabular"
+                                            style={{
+                                                color:
+                                                    selectedSceneIds.size >=
+                                                    ANALYSIS_META[request.type].minScenes
+                                                        ? 'var(--success)'
+                                                        : 'var(--text-secondary)',
+                                            }}
+                                        >
+                                            {selectedSceneIds.size}/{ANALYSIS_META[request.type].minScenes}
+                                        </span>
+                                    </button>
+                                ) : null}
+                                <ScenePickerPanel
+                                    open={pickerOpen}
+                                    onClose={() => setPickerOpen(false)}
+                                    scenes={availableScenes}
+                                    selected={selectedSceneIds}
+                                    onToggle={toggleSceneSelection}
+                                    onSelectAll={selectAllScenes}
+                                    onClear={clearSelectedScenes}
+                                    analysisType={request.type}
+                                    hoveredId={hoveredSceneId}
+                                    onHover={setHoveredSceneId}
+                                    fetching={fetchingScenes}
+                                />
+                            </>
+                        ) : null}
                     </div>
 
                     <div
@@ -1034,23 +1339,17 @@ export default function InsarPage() {
                             background: 'var(--bg-2)',
                             display: 'flex',
                             flexDirection: 'column',
+                            position: 'relative',
+                            zIndex: 9,
                         }}
                     >
                         {tab === 'request' ? (
                             <RequestTimelinePanel
-                                scenes={availableScenes}
-                                selected={selectedSceneIds}
-                                onToggle={toggleSceneSelection}
-                                onClear={clearSelectedScenes}
-                                onSelectAll={selectAllScenes}
-                                analysisType={request.type}
                                 rangeStart={request.startDate}
                                 rangeEnd={request.endDate}
                                 onRangeChange={(s, e) =>
                                     setRequest((f) => ({ ...f, startDate: s, endDate: e }))
                                 }
-                                hoveredId={hoveredSceneId}
-                                onHover={setHoveredSceneId}
                             />
                         ) : (
                             <ResultsBottomPanel
@@ -1131,6 +1430,10 @@ interface RequestSidebarProps {
     onSubmit: () => void;
     onReset: () => void;
     dinsarOverlap: number | null;
+    /** 저장된 AOI 메뉴에서 호버 중인 항목 — 부모가 지도에 미리보기 표시용으로 사용. */
+    onAoiHover: (aoi: SavedAoi | null) => void;
+    /** 저장된 AOI 가 폼에 적용된 직후 호출 — 부모가 fitKey 를 bump 해 줌인. */
+    onAoiApplied: (aoi: SavedAoi) => void;
 }
 
 function RequestSidebar({
@@ -1144,6 +1447,8 @@ function RequestSidebar({
     onSubmit,
     onReset,
     dinsarOverlap,
+    onAoiHover,
+    onAoiApplied,
 }: RequestSidebarProps) {
     const minSel = ANALYSIS_META[form.type].minScenes;
     const ready = selectedCount >= minSel;
@@ -1217,8 +1522,31 @@ function RequestSidebar({
                     />
                 </Section>
 
-                <Section title="AOI (관심 영역)" hint="WGS84 위경도. 향후 지도 그리기/지번 검색 지원 예정.">
+                <Section title="AOI (관심 영역)" hint="WGS84 위경도. 지도에서 그리거나 라이브러리에서 불러올 수 있습니다.">
                     <div className="col gap-2">
+                        <div className="row gap-2" style={{ flexWrap: 'wrap' }}>
+                            <SaveAoiButton
+                                bounds={(() => {
+                                    const nlat = parseFloat(form.nwLat);
+                                    const nlon = parseFloat(form.nwLon);
+                                    const slat = parseFloat(form.seLat);
+                                    const slon = parseFloat(form.seLon);
+                                    if (![nlat, nlon, slat, slon].every(Number.isFinite)) return null;
+                                    if (nlat <= slat || slon <= nlon) return null;
+                                    return { nwLat: nlat, nwLon: nlon, seLat: slat, seLon: slon };
+                                })()}
+                            />
+                            <LoadAoiMenu
+                                onHover={onAoiHover}
+                                onApply={(a) => {
+                                    onChangeField('nwLat', a.nwLat.toFixed(4));
+                                    onChangeField('nwLon', a.nwLon.toFixed(4));
+                                    onChangeField('seLat', a.seLat.toFixed(4));
+                                    onChangeField('seLon', a.seLon.toFixed(4));
+                                    onAoiApplied(a);
+                                }}
+                            />
+                        </div>
                         <div className="row gap-2">
                             <LabeledInput
                                 label="NW lat"
@@ -1855,876 +2183,6 @@ function ResultsSidebar({
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// 분석 요청 — 하단 scene 타임라인
-// ────────────────────────────────────────────────────────────────────────────
-
-interface RequestTimelineProps {
-    scenes: AvailableScene[];
-    selected: Set<string>;
-    onToggle: (id: string) => void;
-    onClear: () => void;
-    onSelectAll: () => void;
-    analysisType: AnalysisType;
-    rangeStart: Date;
-    rangeEnd: Date;
-    onRangeChange: (start: Date, end: Date) => void;
-    hoveredId: string | null;
-    onHover: (id: string | null) => void;
-}
-
-function RequestTimelinePanel({
-    scenes,
-    selected,
-    onToggle,
-    onClear,
-    onSelectAll,
-    analysisType,
-    rangeStart,
-    rangeEnd,
-    onRangeChange,
-    hoveredId,
-    onHover,
-}: RequestTimelineProps) {
-    const minScenes = ANALYSIS_META[analysisType].minScenes;
-    const ready = selected.size >= minScenes;
-    const requirement = ANALYSIS_META[analysisType].sceneRequirement;
-
-    return (
-        <>
-            <div
-                className="between"
-                style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}
-            >
-                <div className="row gap-3" style={{ alignItems: 'center' }}>
-                    <Icon name="chart" size={14} />
-                    <span style={{ fontWeight: 600 }}>사용 가능한 scene 타임라인</span>
-                    <span className="faint" style={{ fontSize: 12 }}>
-                        {scenes.length}개 사용 가능
-                    </span>
-                    <span
-                        className="badge"
-                        style={{
-                            background: ready
-                                ? 'color-mix(in srgb, var(--success) 18%, transparent)'
-                                : 'var(--bg-3)',
-                            color: ready ? 'var(--success)' : 'var(--text-secondary)',
-                        }}
-                    >
-                        {selected.size}/{minScenes} 선택
-                    </span>
-                </div>
-                <div className="row gap-2" style={{ alignItems: 'center' }}>
-                    <span className={`badge ${typeBadge(analysisType)}`} style={{ fontSize: 10 }}>
-                        {analysisType}
-                    </span>
-                    <span className="faint" style={{ fontSize: 11 }}>
-                        필요 {requirement}
-                    </span>
-                    <span
-                        className="faint"
-                        style={{ fontSize: 10.5, paddingLeft: 8, borderLeft: '1px solid var(--border-subtle)' }}
-                    >
-                        휠로 줌 · Shift+휠로 이동 · 드래그로 이동
-                    </span>
-                    {/* 빠른 선택 — 가용 scene 이 있고 아직 모두 선택되지 않은 경우 노출 */}
-                    {scenes.length > 0 &&
-                    !(
-                        analysisType === 'DInSAR'
-                            ? selected.size === 2 && scenes.length >= 2
-                            : selected.size >= scenes.length
-                    ) ? (
-                        <button
-                            type="button"
-                            className="btn btn--sm"
-                            style={{ height: 22, padding: '0 8px', fontSize: 11 }}
-                            onClick={onSelectAll}
-                            title={
-                                analysisType === 'DInSAR'
-                                    ? '첫/마지막 scene 으로 master/slave 페어 자동 선택 (최대 시간 베이스라인)'
-                                    : '가용 scene 모두 선택'
-                            }
-                        >
-                            <Icon name="plus" size={11} />{' '}
-                            {analysisType === 'DInSAR'
-                                ? '첫/마지막 페어'
-                                : `전체 (${scenes.length})`}
-                        </button>
-                    ) : null}
-                    {selected.size > 0 ? (
-                        <button
-                            type="button"
-                            className="btn btn--ghost btn--sm"
-                            style={{ height: 22, padding: '0 8px', fontSize: 11 }}
-                            onClick={onClear}
-                        >
-                            전체 해제
-                        </button>
-                    ) : null}
-                </div>
-            </div>
-
-            {scenes.length === 0 ? (
-                <div
-                    className="empty"
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        padding: 24,
-                        fontSize: 12,
-                        minHeight: 80,
-                    }}
-                >
-                    AOI · 기간 · 미션 조건을 확인해주세요 — 사용 가능한 scene 이 없습니다
-                </div>
-            ) : (
-                <SceneTimelineGraph
-                    scenes={scenes}
-                    selected={selected}
-                    onToggle={onToggle}
-                    rangeStart={rangeStart}
-                    rangeEnd={rangeEnd}
-                    onRangeChange={onRangeChange}
-                    hoveredId={hoveredId}
-                    onHover={onHover}
-                />
-            )}
-        </>
-    );
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// edsc/timeline 스타일 — 두 줄 시간축 (year/month band) + 미션별 lane,
-// 드래그로 pan, +/- 로 zoom. NASA Earthdata Search 의 timeline 과 유사.
-// ────────────────────────────────────────────────────────────────────────────
-
-const MISSION_COLOR: Record<'S1A' | 'S1C', string> = {
-    S1A: '#22d3ee',
-    S1C: '#a855f7',
-};
-
-const MONTH_ABBR_KO = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
-
-/** 줌 단계별 화면에 보이는 시간 범위(일). 1=가장 넓음(10년), 5=가장 좁음(1개월). */
-const ZOOM_DAYS: Record<number, number> = {
-    1: 365 * 10,
-    2: 365 * 3,
-    3: 365,
-    4: 90,
-    5: 30,
-};
-
-interface SceneTimelineGraphProps {
-    scenes: AvailableScene[];
-    selected: Set<string>;
-    onToggle: (id: string) => void;
-    /** 현재 사이드바의 기간 — 핸들 표시 + drag 시 이 값을 갱신. */
-    rangeStart: Date;
-    rangeEnd: Date;
-    onRangeChange: (start: Date, end: Date) => void;
-    hoveredId: string | null;
-    onHover: (id: string | null) => void;
-}
-
-function SceneTimelineGraph({
-    scenes,
-    selected,
-    onToggle,
-    rangeStart,
-    rangeEnd,
-    onRangeChange,
-    hoveredId,
-    onHover,
-}: SceneTimelineGraphProps) {
-    const containerRef = useRef<HTMLDivElement | null>(null);
-    const svgRef = useRef<SVGSVGElement | null>(null);
-    const [containerW, setContainerW] = useState(900);
-
-    useEffect(() => {
-        const el = containerRef.current;
-        if (!el) return;
-        setContainerW(el.clientWidth);
-        const ro = new ResizeObserver((entries) => {
-            const e = entries[0];
-            if (e) setContainerW(e.contentRect.width);
-        });
-        ro.observe(el);
-        return () => ro.disconnect();
-    }, []);
-
-    const day = 24 * 60 * 60 * 1000;
-
-    const sceneTimes = useMemo(
-        () => scenes.map((s) => new Date(s.isoDate).getTime()),
-        [scenes],
-    );
-    const minSceneT = sceneTimes.length ? Math.min(...sceneTimes) : Date.now();
-    const maxSceneT = sceneTimes.length ? Math.max(...sceneTimes) : Date.now();
-
-    // scene 범위에 따른 초기 zoom 단계
-    const initialZoom = useMemo(() => {
-        const targetSpan = (maxSceneT - minSceneT) * 1.2;
-        if (targetSpan <= 30 * day) return 5;
-        if (targetSpan <= 90 * day) return 4;
-        if (targetSpan <= 365 * day) return 3;
-        if (targetSpan <= 365 * 3 * day) return 2;
-        return 1;
-    }, [minSceneT, maxSceneT, day]);
-
-    const [zoom, setZoom] = useState(initialZoom);
-    const [centerMs, setCenterMs] = useState((minSceneT + maxSceneT) / 2);
-
-    // 첫 scene 데이터가 들어오는 그 1회만 자동 fit. 이후엔 range 핸들/pan 결과를 보존.
-    const didFitRef = useRef(false);
-    useEffect(() => {
-        if (scenes.length === 0) {
-            didFitRef.current = false;
-            return;
-        }
-        if (didFitRef.current) return;
-        setCenterMs((minSceneT + maxSceneT) / 2);
-        setZoom(initialZoom);
-        didFitRef.current = true;
-    }, [scenes.length, minSceneT, maxSceneT, initialZoom]);
-
-    const spanMs = ZOOM_DAYS[zoom]! * day;
-    const startMs = centerMs - spanMs / 2;
-    const endMs = centerMs + spanMs / 2;
-
-    // 레이아웃
-    const PAD_LEFT = 64;
-    const PAD_RIGHT = 16;
-    const YEAR_H = 22;
-    const MONTH_H = 18;
-    const HEADER_H = YEAR_H + MONTH_H;
-    const LANE_H = 30;
-
-    const missions = useMemo(() => {
-        const set = new Set<'S1A' | 'S1C'>();
-        scenes.forEach((s) => set.add(s.mission));
-        const out: ('S1A' | 'S1C')[] = [];
-        if (set.has('S1A')) out.push('S1A');
-        if (set.has('S1C')) out.push('S1C');
-        return out;
-    }, [scenes]);
-
-    const lanesH = Math.max(missions.length, 1) * LANE_H;
-    const totalH = HEADER_H + lanesH;
-    const innerW = Math.max(containerW - PAD_LEFT - PAD_RIGHT, 200);
-
-    const xFor = (t: number) => PAD_LEFT + ((t - startMs) / spanMs) * innerW;
-
-    // 연(年) cell — 화면에 걸친 year 들 전체
-    const yearCells = useMemo(() => {
-        const out: { year: number; x1: number; x2: number }[] = [];
-        const startYear = new Date(startMs).getFullYear();
-        const endYear = new Date(endMs).getFullYear();
-        for (let y = startYear; y <= endYear; y++) {
-            const yStart = new Date(y, 0, 1).getTime();
-            const yEnd = new Date(y + 1, 0, 1).getTime();
-            out.push({ year: y, x1: xFor(yStart), x2: xFor(yEnd) });
-        }
-        return out;
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [startMs, endMs, innerW]);
-
-    // 월 cell — zoom 3 이상에서만 의미 있음. 그 이하는 비워둔다.
-    const monthCells = useMemo(() => {
-        if (zoom < 3) return [];
-        const out: { x1: number; x2: number; month: number; year: number }[] = [];
-        const cursor = new Date(startMs);
-        cursor.setDate(1);
-        cursor.setHours(0, 0, 0, 0);
-        cursor.setMonth(cursor.getMonth() - 1); // safety pad
-        const last = new Date(endMs);
-        last.setMonth(last.getMonth() + 1);
-        while (cursor.getTime() <= last.getTime()) {
-            const mStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1).getTime();
-            const mEnd = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1).getTime();
-            out.push({
-                x1: xFor(mStart),
-                x2: xFor(mEnd),
-                month: cursor.getMonth(),
-                year: cursor.getFullYear(),
-            });
-            cursor.setMonth(cursor.getMonth() + 1);
-        }
-        return out;
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [startMs, endMs, innerW, zoom]);
-
-    // 드래그 pan / range 핸들 drag
-    const dragRef = useRef<{ x: number; center: number } | null>(null);
-    const draggedRef = useRef(false);
-    const [grabbing, setGrabbing] = useState(false);
-    const [draggingHandle, setDraggingHandle] = useState<'start' | 'end' | null>(null);
-
-    /** 화면 X 좌표 → timestamp 로 환산. SVG 의 boundingRect 필요. */
-    const xToTime = (clientX: number, svgEl: SVGSVGElement): number => {
-        const rect = svgEl.getBoundingClientRect();
-        const x = clientX - rect.left;
-        return startMs + ((x - PAD_LEFT) / innerW) * spanMs;
-    };
-
-    const onMouseDown = (e: React.MouseEvent) => {
-        if (draggingHandle) return;
-        dragRef.current = { x: e.clientX, center: centerMs };
-        draggedRef.current = false;
-        setGrabbing(true);
-    };
-    const onMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-        // range 핸들 drag 가 활성이면 그쪽이 우선.
-        if (draggingHandle) {
-            const t = xToTime(e.clientX, e.currentTarget);
-            const minSpan = 6 * day;
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            const todayMs = today.getTime();
-            if (draggingHandle === 'start') {
-                const maxStart = rangeEnd.getTime() - minSpan;
-                const snapped = startOfDay(Math.min(t, maxStart));
-                if (snapped !== rangeStart.getTime()) {
-                    onRangeChange(new Date(snapped), rangeEnd);
-                }
-            } else {
-                const minEnd = rangeStart.getTime() + minSpan;
-                const clampedToToday = Math.min(t, todayMs);
-                const snapped = startOfDay(Math.max(clampedToToday, minEnd));
-                if (snapped !== rangeEnd.getTime()) {
-                    onRangeChange(rangeStart, new Date(snapped));
-                }
-            }
-            return;
-        }
-        const d = dragRef.current;
-        if (!d) return;
-        const dx = e.clientX - d.x;
-        if (Math.abs(dx) > 3) draggedRef.current = true;
-        const msPerPx = spanMs / innerW;
-        setCenterMs(d.center - dx * msPerPx);
-    };
-    const endDrag = () => {
-        if (draggingHandle) setDraggingHandle(null);
-        dragRef.current = null;
-        setGrabbing(false);
-        // 다음 click 까지 draggedRef 유지 → 0ms 후 리셋
-        window.setTimeout(() => {
-            draggedRef.current = false;
-        }, 0);
-    };
-
-    const onHandleMouseDown = (which: 'start' | 'end') =>
-        (e: React.MouseEvent) => {
-            e.stopPropagation();
-            setDraggingHandle(which);
-            draggedRef.current = true; // 이 직후 click 으로 scene 토글되는 것을 막기 위함
-        };
-
-    // React 의 onWheel 은 passive 라 preventDefault 가 무시되므로 네이티브 리스너로 부착해
-    // 페이지 스크롤이 새지 않게 한다. Shift + 휠 → 가로 pan, 그 외엔 줌 (deltaY 기준).
-    useEffect(() => {
-        const el = svgRef.current;
-        if (!el) return;
-        const onNativeWheel = (e: WheelEvent) => {
-            if (e.shiftKey) {
-                const dx = e.deltaX !== 0 ? e.deltaX : e.deltaY;
-                if (dx === 0) return;
-                e.preventDefault();
-                const msPerPx = spanMs / innerW;
-                setCenterMs((c) => c + dx * msPerPx);
-            } else {
-                if (e.deltaY === 0) return;
-                e.preventDefault();
-                setZoom((z) => Math.min(5, Math.max(1, z + (e.deltaY < 0 ? 1 : -1))));
-            }
-        };
-        el.addEventListener('wheel', onNativeWheel, { passive: false });
-        return () => el.removeEventListener('wheel', onNativeWheel);
-    }, [spanMs, innerW]);
-
-    const handleSceneClick = (s: AvailableScene) => {
-        if (draggedRef.current) return;
-        onToggle(s.id);
-    };
-
-    const selectedOrder = useMemo(() => {
-        const m = new Map<string, number>();
-        Array.from(selected).forEach((id, i) => m.set(id, i + 1));
-        return m;
-    }, [selected]);
-
-    return (
-        <div
-            ref={containerRef}
-            style={{
-                // height 를 콘텐츠(SVG 의 totalH)에 정확히 맞춰서 lane 수가 늘어날 때만 패널이 커지도록.
-                height: totalH,
-                flexShrink: 0,
-                position: 'relative',
-                background: 'var(--bg-2)',
-                overflow: 'hidden',
-            }}
-        >
-            <svg
-                ref={svgRef}
-                width={containerW}
-                height={totalH}
-                style={{
-                    display: 'block',
-                    cursor: grabbing ? 'grabbing' : 'grab',
-                    userSelect: 'none',
-                }}
-                onMouseDown={onMouseDown}
-                onMouseMove={onMouseMove}
-                onMouseUp={endDrag}
-                onMouseLeave={endDrag}
-            >
-                <defs>
-                    <clipPath id="edsc-track-clip">
-                        <rect x={PAD_LEFT} y={0} width={innerW} height={totalH} />
-                    </clipPath>
-                </defs>
-
-                {/* 좌측 라벨 거터 */}
-                <rect x={0} y={0} width={PAD_LEFT} height={totalH} fill="var(--bg-1)" />
-
-                {/* 클립된 메인 트랙 */}
-                <g clipPath="url(#edsc-track-clip)">
-                    {/* 연(year) band */}
-                    {yearCells.map((c) => {
-                        const cw = c.x2 - c.x1;
-                        const cx = (Math.max(c.x1, PAD_LEFT) + Math.min(c.x2, PAD_LEFT + innerW)) / 2;
-                        return (
-                            <g key={`y-${c.year}`}>
-                                <rect
-                                    x={c.x1}
-                                    y={0}
-                                    width={cw}
-                                    height={YEAR_H}
-                                    fill={c.year % 2 === 0 ? 'var(--bg-3)' : 'var(--bg-1)'}
-                                    stroke="var(--border-default)"
-                                    strokeWidth={0.5}
-                                />
-                                {cw >= 36 ? (
-                                    <text
-                                        x={cx}
-                                        y={YEAR_H / 2 + 4}
-                                        fontSize={11}
-                                        fontWeight={700}
-                                        fill="var(--text-secondary)"
-                                        textAnchor="middle"
-                                        fontFamily="var(--font-mono)"
-                                    >
-                                        {c.year}
-                                    </text>
-                                ) : null}
-                            </g>
-                        );
-                    })}
-
-                    {/* 월(month) band */}
-                    {monthCells.map((c, i) => {
-                        const cw = c.x2 - c.x1;
-                        const cx = (c.x1 + c.x2) / 2;
-                        return (
-                            <g key={`m-${i}`}>
-                                <rect
-                                    x={c.x1}
-                                    y={YEAR_H}
-                                    width={cw}
-                                    height={MONTH_H}
-                                    fill="var(--bg-2)"
-                                    stroke="var(--border-subtle)"
-                                    strokeWidth={0.5}
-                                />
-                                {cw >= 28 ? (
-                                    <text
-                                        x={cx}
-                                        y={YEAR_H + MONTH_H / 2 + 3.5}
-                                        fontSize={9.5}
-                                        fill="var(--text-tertiary)"
-                                        textAnchor="middle"
-                                        fontFamily="var(--font-mono)"
-                                    >
-                                        {MONTH_ABBR_KO[c.month]}
-                                    </text>
-                                ) : cw >= 14 ? (
-                                    <text
-                                        x={cx}
-                                        y={YEAR_H + MONTH_H / 2 + 3.5}
-                                        fontSize={9}
-                                        fill="var(--text-tertiary)"
-                                        textAnchor="middle"
-                                        fontFamily="var(--font-mono)"
-                                    >
-                                        {c.month + 1}
-                                    </text>
-                                ) : null}
-                            </g>
-                        );
-                    })}
-
-                    {/* lane 배경 */}
-                    {missions.map((m, i) => (
-                        <rect
-                            key={`bg-${m}`}
-                            x={PAD_LEFT}
-                            y={HEADER_H + i * LANE_H}
-                            width={innerW}
-                            height={LANE_H}
-                            fill={i % 2 === 0 ? 'var(--bg-2)' : 'var(--bg-1)'}
-                        />
-                    ))}
-
-                    {/* 월 vertical gridline (트랙 안쪽으로 연장) */}
-                    {monthCells.map((c, i) => (
-                        <line
-                            key={`g-m-${i}`}
-                            x1={c.x1}
-                            x2={c.x1}
-                            y1={HEADER_H}
-                            y2={totalH}
-                            stroke="var(--border-subtle)"
-                            strokeWidth={0.5}
-                        />
-                    ))}
-
-                    {/* 연 vertical gridline 강조 */}
-                    {yearCells.map((c) => (
-                        <line
-                            key={`g-y-${c.year}`}
-                            x1={c.x1}
-                            x2={c.x1}
-                            y1={HEADER_H}
-                            y2={totalH}
-                            stroke="var(--border-default)"
-                            strokeWidth={1}
-                        />
-                    ))}
-
-                    {/* 오늘 marker */}
-                    {(() => {
-                        const now = Date.now();
-                        if (now < startMs || now > endMs) return null;
-                        const x = xFor(now);
-                        return (
-                            <g>
-                                <line
-                                    x1={x}
-                                    x2={x}
-                                    y1={0}
-                                    y2={totalH}
-                                    stroke="var(--success)"
-                                    strokeWidth={1}
-                                    strokeDasharray="3,3"
-                                />
-                                <text
-                                    x={x + 4}
-                                    y={HEADER_H + 10}
-                                    fontSize={9}
-                                    fill="var(--success)"
-                                    fontFamily="var(--font-mono)"
-                                >
-                                    today
-                                </text>
-                            </g>
-                        );
-                    })()}
-
-                </g>
-
-                {/* 좌측 거터 (lane 라벨) — 클립 밖에서 항상 표시 */}
-                <rect
-                    x={0}
-                    y={0}
-                    width={PAD_LEFT}
-                    height={HEADER_H}
-                    fill="var(--bg-1)"
-                    stroke="var(--border-default)"
-                    strokeWidth={0.5}
-                />
-                <line
-                    x1={PAD_LEFT}
-                    x2={PAD_LEFT}
-                    y1={0}
-                    y2={totalH}
-                    stroke="var(--border-default)"
-                    strokeWidth={1}
-                />
-                {missions.map((m, i) => {
-                    const yTop = HEADER_H + i * LANE_H;
-                    const yMid = yTop + LANE_H / 2;
-                    return (
-                        <g key={`lbl-${m}`}>
-                            <rect
-                                x={0}
-                                y={yTop}
-                                width={PAD_LEFT}
-                                height={LANE_H}
-                                fill={i % 2 === 0 ? 'var(--bg-2)' : 'var(--bg-1)'}
-                                stroke="var(--border-subtle)"
-                                strokeWidth={0.5}
-                            />
-                            <rect
-                                x={4}
-                                y={yMid - 5}
-                                width={3}
-                                height={10}
-                                fill={MISSION_COLOR[m]}
-                                rx={1}
-                            />
-                            <text
-                                x={14}
-                                y={yMid + 4}
-                                fontSize={11}
-                                fontWeight={600}
-                                fill="var(--text-primary)"
-                                fontFamily="var(--font-mono)"
-                            >
-                                {m}
-                            </text>
-                            <text
-                                x={PAD_LEFT - 6}
-                                y={yMid + 4}
-                                fontSize={9.5}
-                                fill="var(--text-tertiary)"
-                                textAnchor="end"
-                                fontFamily="var(--font-mono)"
-                            >
-                                {scenes.filter((s) => s.mission === m).length}
-                            </text>
-                        </g>
-                    );
-                })}
-
-                {/* 헤더/lane 경계 라인 */}
-                <line
-                    x1={0}
-                    x2={containerW}
-                    y1={YEAR_H}
-                    y2={YEAR_H}
-                    stroke="var(--border-default)"
-                    strokeWidth={0.5}
-                />
-                <line
-                    x1={0}
-                    x2={containerW}
-                    y1={HEADER_H}
-                    y2={HEADER_H}
-                    stroke="var(--border-default)"
-                    strokeWidth={1}
-                />
-
-                {/* 마지막 그룹 — scene 마커 + dim overlay + range 핸들. 헤더/lane 보더 위에 그려진다. */}
-                <g clipPath="url(#edsc-track-clip)">
-                    {/* scene marker — 좁은 vertical bar (border 위) */}
-                    {scenes.map((s) => {
-                        const t = new Date(s.isoDate).getTime();
-                        if (t < startMs - day || t > endMs + day) return null;
-                        const x = xFor(t);
-                        const laneIdx = missions.indexOf(s.mission);
-                        if (laneIdx < 0) return null;
-                        const yTop = HEADER_H + laneIdx * LANE_H + 5;
-                        const h = LANE_H - 10;
-                        const isSel = selected.has(s.id);
-                        const isHov = hoveredId === s.id;
-                        const order = selectedOrder.get(s.id);
-                        const color = MISSION_COLOR[s.mission];
-                        const w = isSel ? 6 : isHov ? 5 : 4;
-                        return (
-                            <g
-                                key={s.id}
-                                onClick={() => handleSceneClick(s)}
-                                onMouseEnter={() => onHover(s.id)}
-                                onMouseLeave={() => onHover(null)}
-                                style={{ cursor: 'pointer' }}
-                            >
-                                <title>
-                                    {`${s.date} · ${s.mission}/${s.pass} · perp ${s.perpBaseline >= 0 ? '+' : ''}${s.perpBaseline}m${isSel ? ` · 선택#${order}` : ''}`}
-                                </title>
-                                <rect
-                                    x={x - 7}
-                                    y={yTop - 2}
-                                    width={14}
-                                    height={h + 4}
-                                    fill="transparent"
-                                />
-                                <rect
-                                    x={x - w / 2}
-                                    y={yTop}
-                                    width={w}
-                                    height={h}
-                                    fill={color}
-                                    fillOpacity={isSel ? 1 : isHov ? 0.85 : 0.55}
-                                    stroke={isSel || isHov ? '#fff' : 'transparent'}
-                                    strokeWidth={isSel ? 1.5 : isHov ? 1 : 0}
-                                    rx={1}
-                                />
-                                {isSel && order ? (
-                                    <>
-                                        <circle
-                                            cx={x}
-                                            cy={yTop - 4}
-                                            r={6.5}
-                                            fill="var(--accent)"
-                                            stroke="var(--bg-2)"
-                                            strokeWidth={1.2}
-                                        />
-                                        <text
-                                            x={x}
-                                            y={yTop - 1.5}
-                                            fontSize={9}
-                                            fontWeight={700}
-                                            fill="#fff"
-                                            textAnchor="middle"
-                                            fontFamily="var(--font-mono)"
-                                        >
-                                            {order}
-                                        </text>
-                                    </>
-                                ) : null}
-                            </g>
-                        );
-                    })}
-
-                    {(() => {
-                        const xS = xFor(rangeStart.getTime());
-                        const xE = xFor(rangeEnd.getTime());
-                        const leftDimW = Math.max(0, Math.min(xS, PAD_LEFT + innerW) - PAD_LEFT);
-                        const rightDimX = Math.max(PAD_LEFT, xE);
-                        const rightDimW = Math.max(0, PAD_LEFT + innerW - rightDimX);
-                        return (
-                            <g style={{ pointerEvents: 'none' }}>
-                                {leftDimW > 0 ? (
-                                    <rect
-                                        x={PAD_LEFT}
-                                        y={HEADER_H}
-                                        width={leftDimW}
-                                        height={lanesH}
-                                        fill="rgba(15,18,22,0.42)"
-                                    />
-                                ) : null}
-                                {rightDimW > 0 ? (
-                                    <rect
-                                        x={rightDimX}
-                                        y={HEADER_H}
-                                        width={rightDimW}
-                                        height={lanesH}
-                                        fill="rgba(15,18,22,0.42)"
-                                    />
-                                ) : null}
-                                {xE > xS ? (
-                                    <rect
-                                        x={Math.max(xS, PAD_LEFT)}
-                                        y={HEADER_H}
-                                        width={Math.max(0, Math.min(xE, PAD_LEFT + innerW) - Math.max(xS, PAD_LEFT))}
-                                        height={lanesH}
-                                        fill="transparent"
-                                        stroke="var(--accent)"
-                                        strokeWidth={1}
-                                        strokeOpacity={0.5}
-                                    />
-                                ) : null}
-                            </g>
-                        );
-                    })()}
-
-                    {(['start', 'end'] as const).map((which) => {
-                        const t = which === 'start' ? rangeStart.getTime() : rangeEnd.getTime();
-                        const x = xFor(t);
-                        const dateStr = formatYmd(which === 'start' ? rangeStart : rangeEnd);
-                        const isActive = draggingHandle === which;
-                        return (
-                            <g
-                                key={`handle-${which}`}
-                                style={{ cursor: 'ew-resize' }}
-                                onMouseDown={onHandleMouseDown(which)}
-                            >
-                                <title>{`${which === 'start' ? '시작' : '종료'}: ${dateStr} (드래그로 조절)`}</title>
-                                <rect
-                                    x={x - 8}
-                                    y={0}
-                                    width={16}
-                                    height={totalH}
-                                    fill="transparent"
-                                />
-                                <rect
-                                    x={x - 2}
-                                    y={0}
-                                    width={4}
-                                    height={totalH}
-                                    fill="var(--accent)"
-                                    fillOpacity={isActive ? 1 : 0.85}
-                                />
-                                <rect
-                                    x={x - 5}
-                                    y={HEADER_H - 10}
-                                    width={10}
-                                    height={20}
-                                    fill="var(--accent)"
-                                    rx={2}
-                                />
-                                <line
-                                    x1={x - 1.5}
-                                    x2={x - 1.5}
-                                    y1={HEADER_H - 6}
-                                    y2={HEADER_H + 6}
-                                    stroke="#fff"
-                                    strokeWidth={0.7}
-                                    strokeOpacity={0.85}
-                                />
-                                <line
-                                    x1={x + 1.5}
-                                    x2={x + 1.5}
-                                    y1={HEADER_H - 6}
-                                    y2={HEADER_H + 6}
-                                    stroke="#fff"
-                                    strokeWidth={0.7}
-                                    strokeOpacity={0.85}
-                                />
-                                <rect
-                                    x={x - 38}
-                                    y={totalH - 16}
-                                    width={76}
-                                    height={14}
-                                    fill="var(--accent)"
-                                    rx={2}
-                                />
-                                <text
-                                    x={x}
-                                    y={totalH - 5.5}
-                                    fontSize={9.5}
-                                    fontWeight={700}
-                                    fill="#fff"
-                                    textAnchor="middle"
-                                    fontFamily="var(--font-mono)"
-                                >
-                                    {dateStr}
-                                </text>
-                            </g>
-                        );
-                    })}
-                </g>
-            </svg>
-        </div>
-    );
-}
-
-function formatYmd(d: Date): string {
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
-}
-
-/** 임의의 timestamp 를 자정(00:00) 으로 스냅. */
-function startOfDay(ts: number): number {
-    const d = new Date(ts);
-    d.setHours(0, 0, 0, 0);
-    return d.getTime();
-}
-
-// ────────────────────────────────────────────────────────────────────────────
 // 결과 — 하단 시계열 패널
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -2943,8 +2401,956 @@ function TimeseriesChart({ points }: { points: Point[] }) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// baseline 도움말 — 처음 InSAR 를 보는 사용자를 위한 ⓘ 위젯
+// ────────────────────────────────────────────────────────────────────────────
+
+// ────────────────────────────────────────────────────────────────────────────
+// 수식 렌더링 — KaTeX 의존 없이 LaTeX 스타일을 흉내내는 가벼운 헬퍼.
+// 변수: serif italic, subscript: <sub>(축소 + roman), 디스플레이: 가운데 정렬 + 배경.
+// ────────────────────────────────────────────────────────────────────────────
+
+const MATH_FONT =
+    '"Cambria Math", "STIX Two Math", "Latin Modern Math", "Times New Roman", serif';
+
+function MEq({
+    display,
+    children,
+}: {
+    display?: boolean;
+    children: React.ReactNode;
+}) {
+    if (display) {
+        return (
+            <div
+                style={{
+                    fontFamily: MATH_FONT,
+                    margin: '8px 0',
+                    padding: '8px 10px',
+                    background: 'var(--bg-3)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 4,
+                    fontSize: 13,
+                    textAlign: 'center',
+                    lineHeight: 1.7,
+                    letterSpacing: '0.01em',
+                }}
+            >
+                {children}
+            </div>
+        );
+    }
+    return (
+        <span
+            style={{
+                fontFamily: MATH_FONT,
+                fontSize: '1.05em',
+                letterSpacing: '0.01em',
+            }}
+        >
+            {children}
+        </span>
+    );
+}
+
+/** 수학적 변수 — italic serif. 예: <MV>B</MV>, <MV>X</MV> */
+function MV({ children }: { children: React.ReactNode }) {
+    return <span style={{ fontStyle: 'italic' }}>{children}</span>;
+}
+
+/** 수학 subscript — roman, 축소. 예: B<MSub>⊥</MSub> */
+function MSub({ children }: { children: React.ReactNode }) {
+    return (
+        <sub
+            style={{
+                fontStyle: 'normal',
+                fontFamily: MATH_FONT,
+                fontSize: '0.72em',
+                letterSpacing: 0,
+            }}
+        >
+            {children}
+        </sub>
+    );
+}
+
+type BaselineHelpTab = 'overview' | 'dinsar' | 'stack' | 'workflow';
+
+const BASELINE_HELP_TABS: { key: BaselineHelpTab; label: string }[] = [
+    { key: 'overview', label: '개요' },
+    { key: 'dinsar', label: 'DInSAR' },
+    { key: 'stack', label: 'SBAS/PS' },
+    { key: 'workflow', label: '사전계산' },
+];
+
+function BaselineHelpButton() {
+    const ref = useRef<HTMLButtonElement | null>(null);
+    const [open, setOpen] = useState(false);
+    const [tab, setTab] = useState<BaselineHelpTab>('overview');
+    const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+
+    useEffect(() => {
+        if (!open) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setOpen(false);
+        };
+        const onClickOutside = (e: MouseEvent) => {
+            const target = e.target as Node;
+            if (ref.current && ref.current.contains(target)) return;
+            const popoverEl = document.getElementById('baseline-help-popover');
+            if (popoverEl && popoverEl.contains(target)) return;
+            setOpen(false);
+        };
+        window.addEventListener('keydown', onKey);
+        window.addEventListener('mousedown', onClickOutside);
+        return () => {
+            window.removeEventListener('keydown', onKey);
+            window.removeEventListener('mousedown', onClickOutside);
+        };
+    }, [open]);
+
+    useEffect(() => {
+        if (!open || !ref.current) return;
+        const r = ref.current.getBoundingClientRect();
+        const w = 360;
+        // 패널은 우측 가장자리에 있으므로, popover 가 화면 밖으로 나가지 않도록 좌측 정렬.
+        const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+        setCoords({ top: r.bottom + 8, left });
+    }, [open]);
+
+    return (
+        <>
+            <button
+                ref={ref}
+                type="button"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    setOpen((o) => !o);
+                }}
+                aria-label="수직 baseline 설명"
+                aria-expanded={open}
+                style={{
+                    background: 'transparent',
+                    border: 0,
+                    padding: 0,
+                    cursor: 'help',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    color: open ? 'var(--accent)' : 'var(--text-tertiary)',
+                }}
+            >
+                <Icon name="info" size={12} />
+            </button>
+            {open && coords && typeof document !== 'undefined'
+                ? createPortal(
+                      <div
+                          id="baseline-help-popover"
+                          role="dialog"
+                          aria-label="수직 baseline 설명"
+                          style={{
+                              position: 'fixed',
+                              top: coords.top,
+                              left: coords.left,
+                              zIndex: 9999,
+                              width: 360,
+                              maxHeight: 'calc(100vh - 24px)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              background: 'var(--bg-2)',
+                              border: '1px solid var(--border-default)',
+                              borderRadius: 6,
+                              boxShadow: 'var(--shadow-md)',
+                              fontSize: 11.5,
+                              lineHeight: 1.55,
+                              color: 'var(--text-primary)',
+                              overflow: 'hidden',
+                          }}
+                      >
+                          <div
+                              className="between"
+                              style={{
+                                  alignItems: 'center',
+                                  padding: '10px 14px 8px',
+                                  flexShrink: 0,
+                              }}
+                          >
+                              <span style={{ fontWeight: 700, fontSize: 12.5 }}>
+                                  수직 baseline (
+                                  <MEq>
+                                      <MV>B</MV>
+                                      <MSub>⊥</MSub>
+                                  </MEq>
+                                  )
+                              </span>
+                              <button
+                                  type="button"
+                                  onClick={() => setOpen(false)}
+                                  aria-label="닫기"
+                                  style={{
+                                      background: 'transparent',
+                                      border: 0,
+                                      padding: 2,
+                                      cursor: 'pointer',
+                                      color: 'var(--text-tertiary)',
+                                      display: 'inline-flex',
+                                  }}
+                              >
+                                  <Icon name="x" size={11} />
+                              </button>
+                          </div>
+                          <div
+                              role="tablist"
+                              aria-label="baseline 도움말 탭"
+                              style={{
+                                  display: 'flex',
+                                  borderBottom: '1px solid var(--border-subtle)',
+                                  padding: '0 8px',
+                                  gap: 2,
+                                  flexShrink: 0,
+                              }}
+                          >
+                              {BASELINE_HELP_TABS.map((t) => {
+                                  const active = tab === t.key;
+                                  return (
+                                      <button
+                                          key={t.key}
+                                          type="button"
+                                          role="tab"
+                                          aria-selected={active}
+                                          onClick={() => setTab(t.key)}
+                                          style={{
+                                              flex: 1,
+                                              padding: '6px 4px',
+                                              background: 'none',
+                                              border: 0,
+                                              borderBottom: active
+                                                  ? '2px solid var(--accent)'
+                                                  : '2px solid transparent',
+                                              color: active
+                                                  ? 'var(--accent)'
+                                                  : 'var(--text-secondary)',
+                                              fontWeight: active ? 600 : 500,
+                                              fontSize: 11,
+                                              cursor: 'pointer',
+                                              marginBottom: -1,
+                                          }}
+                                      >
+                                          {t.label}
+                                      </button>
+                                  );
+                              })}
+                          </div>
+                          <div
+                              role="tabpanel"
+                              style={{
+                                  padding: '12px 14px',
+                                  overflow: 'auto',
+                                  minHeight: 0,
+                              }}
+                          >
+                              {tab === 'overview' ? <BaselineTabOverview /> : null}
+                              {tab === 'dinsar' ? <BaselineTabDinsar /> : null}
+                              {tab === 'stack' ? <BaselineTabStack /> : null}
+                              {tab === 'workflow' ? <BaselineTabWorkflow /> : null}
+                          </div>
+                      </div>,
+                      document.body,
+                  )
+                : null}
+        </>
+    );
+}
+
+function BaselineTabOverview() {
+    return (
+        <>
+            <p style={{ margin: '0 0 8px 0' }}>
+                두 SAR 촬영 시점의 위성 위치 차이를 시선(LOS) 직각 방향으로 투영한
+                길이입니다. 간섭쌍(InSAR) 의 품질을 결정하는 핵심 파라미터예요.
+            </p>
+            <MEq display>
+                <MV>B</MV>
+                <MSub>⊥</MSub> = | <MV>B</MV> − ( <MV>B</MV> · <MV>r̂</MV> ) <MV>r̂</MV>{' '}
+                |
+            </MEq>
+            <div
+                style={{
+                    fontSize: 10.5,
+                    color: 'var(--text-tertiary)',
+                    margin: '-2px 0 8px 0',
+                    textAlign: 'center',
+                }}
+            >
+                <MV>B</MV> = baseline 벡터, <MV>r̂</MV> = LOS 단위벡터
+            </div>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>해석 가이드</div>
+            <ul style={{ margin: '0 0 8px 0', paddingLeft: 16 }}>
+                <li>
+                    <MEq>
+                        | <MV>B</MV>
+                        <MSub>⊥</MSub> |
+                    </MEq>{' '}
+                    작음 (&lt; 150 m): coherence 양호 → DInSAR · 시계열에 적합
+                </li>
+                <li>
+                    <MEq>
+                        | <MV>B</MV>
+                        <MSub>⊥</MSub> |
+                    </MEq>{' '}
+                    큼 (&gt; 200 m): 지형 민감도 ↑ → DEM 추출엔 유리하나 변위 분석엔 불리
+                </li>
+                <li>
+                    부호 ( <MEq>+</MEq> / <MEq>−</MEq> ): 위성이 LOS 직각 어느
+                    쪽에 있는지의 방향
+                </li>
+            </ul>
+            <div
+                style={{
+                    paddingTop: 8,
+                    borderTop: '1px solid var(--border-subtle)',
+                    color: 'var(--text-secondary)',
+                    fontSize: 10.5,
+                }}
+            >
+                각 scene 행의{' '}
+                <span className="mono" style={{ color: 'var(--text-primary)' }}>
+                    ⊥+147m
+                </span>{' '}
+                는 stack 의 reference scene 으로부터의{' '}
+                <MEq>
+                    <MV>B</MV>
+                    <MSub>⊥</MSub>
+                </MEq>{' '}
+                입니다 (모든 분석 유형 공통).
+            </div>
+        </>
+    );
+}
+
+function BaselineTabDinsar() {
+    return (
+        <>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                페어{' '}
+                <MEq>
+                    <MV>B</MV>
+                    <MSub>⊥</MSub>
+                </MEq>
+            </div>
+            <p style={{ margin: '0 0 4px 0' }}>선택한 두 scene 사이의 상대 baseline.</p>
+            <MEq display>
+                <MV>B</MV>
+                <MSub>⊥, pair</MSub> = | <MV>B</MV>
+                <MSub>⊥, M</MSub> − <MV>B</MV>
+                <MSub>⊥, S</MSub> |
+            </MEq>
+            <div
+                style={{
+                    fontSize: 10.5,
+                    color: 'var(--text-tertiary)',
+                    margin: '-2px 0 8px 0',
+                    textAlign: 'center',
+                }}
+            >
+                <MV>M</MV> = master, <MV>S</MV> = slave
+            </div>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>품질 임계값</div>
+            <ul style={{ margin: '0 0 8px 0', paddingLeft: 16 }}>
+                <li>
+                    <span style={{ color: 'var(--success)', fontWeight: 600 }}>
+                        양호
+                    </span>{' '}
+                    (&lt; 150 m): coherence 우수, 변위 분석 추천
+                </li>
+                <li>
+                    <span style={{ color: 'var(--warning)', fontWeight: 600 }}>
+                        경계
+                    </span>{' '}
+                    (150 ~ 250 m): 사용 가능, 결과 노이즈 증가
+                </li>
+                <li>
+                    <span style={{ color: 'var(--danger)', fontWeight: 600 }}>
+                        위험
+                    </span>{' '}
+                    (&gt; 250 m): coherence 저하, 신뢰도 낮음
+                </li>
+            </ul>
+            <div
+                style={{
+                    paddingTop: 8,
+                    borderTop: '1px solid var(--border-subtle)',
+                    color: 'var(--text-secondary)',
+                    fontSize: 10.5,
+                }}
+            >
+                DInSAR 는 페어 1개로 끝나므로 이 단일 수치가 곧 분석 품질입니다.
+                Sentinel-1 은 12일 cadence 기준 보통{' '}
+                <MEq>
+                    | <MV>B</MV>
+                    <MSub>⊥</MSub> | &lt; 150 m
+                </MEq>{' '}
+                페어가 대부분이에요.
+            </div>
+        </>
+    );
+}
+
+function BaselineTabStack() {
+    return (
+        <>
+            <p style={{ margin: '0 0 8px 0' }}>
+                SBAS/PSInSAR 는 페어가 1개가 아니라 <strong>여러 페어로 짠 네트워크</strong>
+                라 단일 수치로 평가가 안 됩니다. 그래서 선택한 <MV>N</MV>장의{' '}
+                <MEq>
+                    | <MV>B</MV>
+                    <MSub>⊥</MSub> |
+                </MEq>{' '}
+                분포를 통계로 요약합니다.
+            </p>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>지표 의미</div>
+            <ul style={{ margin: '0 0 8px 0', paddingLeft: 16 }}>
+                <li>
+                    <MEq>
+                        min<sub style={{ fontStyle: 'normal', fontSize: '0.72em' }}>
+                            i
+                        </sub>{' '}
+                        | <MV>B</MV>
+                        <MSub>⊥, i</MSub> |
+                    </MEq>{' '}
+                    — 가장 작은 절댓값. 가장 안정한 페어 후보.
+                </li>
+                <li>
+                    <MEq>
+                        ⟨ | <MV>B</MV>
+                        <MSub>⊥</MSub> | ⟩
+                    </MEq>{' '}
+                    — 평균. 스택 전반의 baseline 분포 중심.
+                </li>
+                <li>
+                    <MEq>
+                        max<sub style={{ fontStyle: 'normal', fontSize: '0.72em' }}>
+                            i
+                        </sub>{' '}
+                        | <MV>B</MV>
+                        <MSub>⊥, i</MSub> |
+                    </MEq>{' '}
+                    — 가장 큰 절댓값. 가장 risky 한 페어 (제외 후보).
+                </li>
+            </ul>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>실제 처리 흐름</div>
+            <ul style={{ margin: '0 0 8px 0', paddingLeft: 16 }}>
+                <li>
+                    <strong>SBAS</strong>:{' '}
+                    <MEq>
+                        | <MV>B</MV>
+                        <MSub>⊥</MSub> | &lt; <MV>B</MV>
+                        <MSub>th</MSub>
+                    </MEq>{' '}
+                    (보통 150 m) 인 페어들로 small-baseline 네트워크 구성 → 시계열 추정
+                </li>
+                <li>
+                    <strong>PSInSAR</strong>: 단일 master 와 모든 secondary 를 페어로
+                    묶음 →{' '}
+                    <MEq>
+                        max | <MV>B</MV>
+                        <MSub>⊥</MSub> |
+                    </MEq>{' '}
+                    가 분석 한계를 결정
+                </li>
+            </ul>
+            <div
+                style={{
+                    paddingTop: 8,
+                    borderTop: '1px solid var(--border-subtle)',
+                    color: 'var(--text-secondary)',
+                    fontSize: 10.5,
+                }}
+            >
+                요약하면 <MEq>min</MEq> 이 작고 <MEq>max</MEq> 가 너무 크지 않은
+                (이상적으로{' '}
+                <MEq>
+                    ⟨ | <MV>B</MV>
+                    <MSub>⊥</MSub> | ⟩ &lt; 100 m
+                </MEq>
+                ) 스택이 좋은 후보입니다.
+            </div>
+        </>
+    );
+}
+
+function BaselineTabWorkflow() {
+    return (
+        <>
+            <p style={{ margin: '0 0 8px 0' }}>
+                <MEq>
+                    <MV>B</MV>
+                    <MSub>⊥</MSub>
+                </MEq>{' '}
+                는 SLC 픽셀 처리 전, ESA 의 <strong>정밀 궤도 (POEORB)</strong>{' '}
+                메타데이터만으로 산출 가능합니다.
+            </p>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>POEORB 사양</div>
+            <ul style={{ margin: '0 0 8px 0', paddingLeft: 16 }}>
+                <li>정확도: ±5 cm (위성 위치)</li>
+                <li>가용 시점: 촬영 후 ~20일 (실시간 시 RESORB ±10 cm 대체)</li>
+                <li>파일 크기: 수백 KB (SLC 는 GB 단위)</li>
+            </ul>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>계산 흐름</div>
+            <ol style={{ margin: '0 0 8px 0', paddingLeft: 16 }}>
+                <li>
+                    두 scene 의 acquisition time{' '}
+                    <MEq>
+                        <MV>t</MV>
+                        <MSub>M</MSub>, <MV>t</MV>
+                        <MSub>S</MSub>
+                    </MEq>{' '}
+                    에서 위성 state vector 보간
+                </li>
+                <li>
+                    AOI 중심 <MV>P</MV> 에 대해 zero-Doppler time 산출
+                </li>
+                <li>
+                    baseline 벡터:
+                    <MEq display>
+                        <MV>B</MV> = <MV>X</MV>
+                        <MSub>S</MSub> − <MV>X</MV>
+                        <MSub>M</MSub>
+                    </MEq>
+                </li>
+                <li>
+                    LOS 단위벡터{' '}
+                    <MEq>
+                        <MV>r̂</MV> = ( <MV>P</MV> − <MV>X</MV>
+                        <MSub>M</MSub> ) / | <MV>P</MV> − <MV>X</MV>
+                        <MSub>M</MSub> |
+                    </MEq>{' '}
+                    로 직각 성분 투영 →{' '}
+                    <MEq>
+                        <MV>B</MV>
+                        <MSub>⊥</MSub>
+                    </MEq>
+                </li>
+            </ol>
+            <div
+                style={{
+                    paddingTop: 8,
+                    borderTop: '1px solid var(--border-subtle)',
+                    color: 'var(--text-secondary)',
+                    fontSize: 10.5,
+                }}
+            >
+                전체 SLC 스택을 다운로드하지 않고도 페어링 적합성을 미리 판단할 수
+                있어, 실패할 페어에 대한 다운로드/처리 비용을 절감합니다.
+            </div>
+        </>
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // 결과 — 원본 scene 모달
 // ────────────────────────────────────────────────────────────────────────────
+
+// ────────────────────────────────────────────────────────────────────────────
+// 분석 요청 — 우측 슬라이드 패널 (scene 목록 + 미리보기 + 다중 선택)
+// ────────────────────────────────────────────────────────────────────────────
+
+interface ScenePickerPanelProps {
+    open: boolean;
+    onClose: () => void;
+    scenes: AvailableScene[];
+    selected: Set<string>;
+    onToggle: (id: string) => void;
+    onSelectAll: () => void;
+    onClear: () => void;
+    analysisType: AnalysisType;
+    hoveredId: string | null;
+    onHover: (id: string | null) => void;
+    fetching: boolean;
+}
+
+function ScenePickerPanel({
+    open,
+    onClose,
+    scenes,
+    selected,
+    onToggle,
+    onSelectAll,
+    onClear,
+    analysisType,
+    hoveredId,
+    onHover,
+    fetching,
+}: ScenePickerPanelProps) {
+    const minScenes = ANALYSIS_META[analysisType].minScenes;
+    const ready = selected.size >= minScenes;
+    const requirement = ANALYSIS_META[analysisType].sceneRequirement;
+    const allSelected =
+        analysisType === 'DInSAR'
+            ? selected.size === 2 && scenes.length >= 2
+            : scenes.length > 0 && selected.size >= scenes.length;
+
+    // 선택된 scene 들의 baseline 통계 — 사전계산된 B⊥ 로부터 페어/스택 요약.
+    const baselineSummary = useMemo(() => {
+        if (selected.size < 2) return null;
+        const picks = scenes.filter((s) => selected.has(s.id));
+        if (picks.length < 2) return null;
+        const perps = picks.map((s) => s.perpBaseline);
+        if (analysisType === 'DInSAR' && picks.length === 2) {
+            // 두 scene 의 baseline 차이가 페어 B⊥
+            const a = perps[0]!;
+            const b = perps[1]!;
+            const pair = Math.abs(a - b);
+            const quality = pair < 150 ? 'good' : pair < 250 ? 'marginal' : 'poor';
+            return { mode: 'pair' as const, pair, quality };
+        }
+        const abs = perps.map((p) => Math.abs(p));
+        const min = Math.min(...abs);
+        const max = Math.max(...abs);
+        const mean = Math.round(abs.reduce((s, v) => s + v, 0) / abs.length);
+        return { mode: 'stack' as const, min, max, mean };
+    }, [selected, scenes, analysisType]);
+
+    return (
+        <div
+            aria-hidden={!open}
+            style={{
+                position: 'absolute',
+                top: 0,
+                right: 0,
+                bottom: 0,
+                width: 360,
+                background: 'var(--bg-1)',
+                borderLeft: '1px solid var(--border-default)',
+                boxShadow: open ? 'var(--shadow-md)' : 'none',
+                zIndex: 8,
+                transform: open ? 'translateX(0)' : 'translateX(calc(100% + 4px))',
+                transition: 'transform 220ms cubic-bezier(0.2, 0.7, 0.3, 1)',
+                display: 'flex',
+                flexDirection: 'column',
+                pointerEvents: open ? 'all' : 'none',
+            }}
+        >
+            <div
+                style={{
+                    padding: '10px 14px',
+                    borderBottom: '1px solid var(--border-subtle)',
+                    flexShrink: 0,
+                }}
+            >
+                <div className="row gap-2 between" style={{ alignItems: 'center' }}>
+                    <div className="row gap-2" style={{ alignItems: 'center' }}>
+                        <span style={{ fontWeight: 600, fontSize: 13 }}>scene 선택</span>
+                        <span
+                            className={`badge ${typeBadge(analysisType)}`}
+                            style={{ fontSize: 10 }}
+                        >
+                            {analysisType}
+                        </span>
+                    </div>
+                    <button
+                        type="button"
+                        className="btn btn--ghost btn--sm"
+                        onClick={onClose}
+                        aria-label="패널 닫기"
+                        style={{ width: 24, height: 24, padding: 0 }}
+                    >
+                        <Icon name="x" size={13} />
+                    </button>
+                </div>
+                <div
+                    className="row gap-2"
+                    style={{ alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}
+                >
+                    <span
+                        className="badge"
+                        style={{
+                            background: ready
+                                ? 'color-mix(in srgb, var(--success) 18%, transparent)'
+                                : 'var(--bg-3)',
+                            color: ready ? 'var(--success)' : 'var(--text-secondary)',
+                            fontSize: 10.5,
+                        }}
+                    >
+                        {selected.size}/{minScenes} 선택
+                    </span>
+                    <span className="faint" style={{ fontSize: 11 }}>
+                        필요 {requirement}
+                    </span>
+                </div>
+                <div
+                    className="faint"
+                    style={{ fontSize: 10.5, marginTop: 4, lineHeight: 1.45 }}
+                >
+                    {scenes.length}개 가용
+                    {analysisType === 'DInSAR'
+                        ? ' · 두 scene 선택 시 master/slave 자동 매칭'
+                        : ''}
+                </div>
+
+                {/* B⊥ 사전계산 워크플로우 indicator + 도움말 */}
+                <div
+                    style={{
+                        marginTop: 8,
+                        padding: '7px 9px',
+                        background: 'var(--bg-2)',
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: 5,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4,
+                    }}
+                >
+                    <div
+                        className="row gap-2"
+                        style={{ alignItems: 'center', fontSize: 10.5 }}
+                    >
+                        <Icon
+                            name="satellite"
+                            size={11}
+                            style={{ color: 'var(--success)' }}
+                        />
+                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                            B⊥ 사전계산 완료
+                        </span>
+                        <span className="faint">· POEORB orbit 기반</span>
+                        <span style={{ marginLeft: 'auto', display: 'inline-flex' }}>
+                            <BaselineHelpButton />
+                        </span>
+                    </div>
+                    <div
+                        className="mono tabular"
+                        style={{
+                            fontSize: 10.5,
+                            color: 'var(--text-secondary)',
+                            paddingTop: 3,
+                            borderTop: '1px solid var(--border-subtle)',
+                            minHeight: 18,
+                            // 항상 렌더링하여 선택 변경 시 레이아웃 시프트 방지.
+                            // baselineSummary 가 null 인 경우엔 placeholder 만 표시.
+                        }}
+                    >
+                        {baselineSummary ? (
+                            baselineSummary.mode === 'pair' ? (
+                                <>
+                                    <span style={{ color: 'var(--text-tertiary)' }}>
+                                        페어 B⊥
+                                    </span>{' '}
+                                    <span
+                                        style={{
+                                            fontWeight: 700,
+                                            color:
+                                                baselineSummary.quality === 'good'
+                                                    ? 'var(--success)'
+                                                    : baselineSummary.quality === 'marginal'
+                                                      ? 'var(--warning)'
+                                                      : 'var(--danger)',
+                                        }}
+                                    >
+                                        {baselineSummary.pair} m
+                                    </span>{' '}
+                                    <span style={{ color: 'var(--text-tertiary)' }}>
+                                        ·{' '}
+                                        {baselineSummary.quality === 'good'
+                                            ? 'coherence 양호'
+                                            : baselineSummary.quality === 'marginal'
+                                              ? 'coherence 경계'
+                                              : 'coherence 위험'}
+                                    </span>
+                                </>
+                            ) : (
+                                <>
+                                    <span style={{ color: 'var(--text-tertiary)' }}>
+                                        스택 |B⊥|
+                                    </span>{' '}
+                                    min {baselineSummary.min} · mean{' '}
+                                    {baselineSummary.mean} · max {baselineSummary.max} m
+                                </>
+                            )
+                        ) : (
+                            <span
+                                style={{
+                                    color: 'var(--text-tertiary)',
+                                    fontFamily: 'var(--font-sans)',
+                                    fontStyle: 'italic',
+                                }}
+                            >
+                                2개 이상 선택 시 baseline 통계 표시
+                            </span>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            <div style={{ flex: 1, overflow: 'auto', position: 'relative', minHeight: 0 }}>
+                {scenes.length === 0 && !fetching ? (
+                    <div className="empty" style={{ padding: 24, fontSize: 12 }}>
+                        가용 scene 이 없습니다 — AOI · 기간 · 미션을 확인하세요
+                    </div>
+                ) : (
+                    scenes.map((s) => {
+                        const isSel = selected.has(s.id);
+                        const isHov = hoveredId === s.id;
+                        const order = isSel
+                            ? Array.from(selected).indexOf(s.id) + 1
+                            : null;
+                        const missionColor = s.mission === 'S1A' ? '#22d3ee' : '#a855f7';
+                        return (
+                            <div
+                                key={s.id}
+                                onClick={() => onToggle(s.id)}
+                                onMouseEnter={() => onHover(s.id)}
+                                onMouseLeave={() => onHover(null)}
+                                style={{
+                                    padding: '10px 12px',
+                                    borderBottom: '1px solid var(--border-subtle)',
+                                    background: isSel
+                                        ? 'var(--accent-soft)'
+                                        : isHov
+                                          ? 'var(--bg-2)'
+                                          : undefined,
+                                    borderLeft: isSel
+                                        ? '3px solid var(--accent)'
+                                        : '3px solid transparent',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 10,
+                                }}
+                            >
+                                <input
+                                    type="checkbox"
+                                    className="checkbox"
+                                    checked={isSel}
+                                    onChange={() => onToggle(s.id)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    style={{ flexShrink: 0 }}
+                                />
+                                <div style={{ position: 'relative', flexShrink: 0 }}>
+                                    <Quicklook sceneId={s.id} size={48} />
+                                    {order ? (
+                                        <span
+                                            style={{
+                                                position: 'absolute',
+                                                top: -4,
+                                                right: -4,
+                                                width: 18,
+                                                height: 18,
+                                                borderRadius: '50%',
+                                                background: 'var(--accent)',
+                                                color: '#fff',
+                                                fontSize: 10,
+                                                fontWeight: 700,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                border: '1.5px solid var(--bg-1)',
+                                                fontFamily: 'var(--font-mono)',
+                                            }}
+                                        >
+                                            {order}
+                                        </span>
+                                    ) : null}
+                                </div>
+                                <div className="col" style={{ flex: 1, gap: 3, minWidth: 0 }}>
+                                    <div className="row gap-2" style={{ alignItems: 'center' }}>
+                                        <span
+                                            style={{
+                                                fontSize: 10,
+                                                padding: '0 5px',
+                                                height: 15,
+                                                lineHeight: '14px',
+                                                borderRadius: 3,
+                                                background: missionColor + '22',
+                                                color: missionColor,
+                                                border: `1px solid ${missionColor}55`,
+                                                fontFamily: 'var(--font-mono)',
+                                                fontWeight: 600,
+                                            }}
+                                        >
+                                            {s.mission}
+                                        </span>
+                                        <span
+                                            className="faint mono tabular"
+                                            style={{ fontSize: 10.5 }}
+                                        >
+                                            {s.pass}
+                                        </span>
+                                        <span
+                                            className="mono tabular"
+                                            style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}
+                                        >
+                                            {s.date}
+                                        </span>
+                                        <span
+                                            className="faint mono tabular"
+                                            title="perpendicular baseline (수직 baseline) — 두 SAR scene 의 시선(LOS) 직각 방향 거리. 절댓값이 작을수록 간섭 coherence 가 좋다."
+                                            style={{ fontSize: 10.5, marginLeft: 'auto' }}
+                                        >
+                                            ⊥{s.perpBaseline >= 0 ? '+' : ''}
+                                            {s.perpBaseline}m
+                                        </span>
+                                    </div>
+                                    <div
+                                        className="mono"
+                                        title={s.id}
+                                        style={{
+                                            fontSize: 11,
+                                            fontWeight: isSel ? 600 : 500,
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                            color: 'var(--text-primary)',
+                                        }}
+                                    >
+                                        {s.id}
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })
+                )}
+                {/*
+                 * 패널 내부 로딩 spinner 는 의도적으로 두지 않는다.
+                 * 지도 영역에 absolute 로 깔린 fetchingScenes 오버레이가 패널 영역까지
+                 * 덮으므로, 같은 자리에 spinner 두 개가 겹쳐 보이는 것을 방지.
+                 * fetching prop 은 위에서 "scene 없음" 빈 상태 메시지를 억제하는 데만 사용.
+                 */}
+            </div>
+
+            <div
+                style={{
+                    padding: 10,
+                    borderTop: '1px solid var(--border-subtle)',
+                    background: 'var(--bg-2)',
+                    flexShrink: 0,
+                    display: 'flex',
+                    gap: 6,
+                }}
+            >
+                <button
+                    type="button"
+                    className="btn btn--sm"
+                    style={{ flex: 1 }}
+                    onClick={onSelectAll}
+                    disabled={scenes.length === 0 || allSelected}
+                >
+                    <Icon name="plus" size={11} />{' '}
+                    {analysisType === 'DInSAR'
+                        ? '첫/마지막 페어'
+                        : `전체 (${scenes.length})`}
+                </button>
+                <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    onClick={onClear}
+                    disabled={selected.size === 0}
+                    style={{ flex: '0 0 auto' }}
+                >
+                    해제
+                </button>
+            </div>
+        </div>
+    );
+}
 
 function ScenesModal({ product, onClose }: { product: InsarProduct; onClose: () => void }) {
     const scenes = useMemo(() => generateScenes(product), [product]);

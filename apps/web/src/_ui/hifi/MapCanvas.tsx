@@ -10,10 +10,12 @@ import { MultiPoint, Point, Polygon } from 'ol/geom';
 import Draw, { createBox } from 'ol/interaction/Draw';
 import Modify from 'ol/interaction/Modify';
 import Translate from 'ol/interaction/Translate';
+import ImageLayer from 'ol/layer/Image';
 import TileLayer from 'ol/layer/Tile';
 import VectorLayer from 'ol/layer/Vector';
 import Map from 'ol/Map';
 import { fromLonLat, toLonLat } from 'ol/proj';
+import ImageStatic from 'ol/source/ImageStatic';
 import OSM from 'ol/source/OSM';
 import VectorSource from 'ol/source/Vector';
 import XYZ from 'ol/source/XYZ';
@@ -58,10 +60,34 @@ export interface MapPoint {
     onClick?: () => void;
 }
 
+/** 단일 정적 이미지(예: InSAR 산출물 미리보기) 를 lon/lat 범위에 맞춰 지도 위에 띄운다. */
+export interface MapRasterOverlay {
+    /** 데이터 URL 또는 원격 이미지 URL */
+    src: string;
+    /** [west, south, east, north] in lon/lat (EPSG:4326) */
+    extent: [number, number, number, number];
+    /** 0–1, default 1 */
+    opacity?: number;
+}
+
+/** `legend === 'velocity'` 일 때 범례 외관을 호출자가 결정한다. 미지정 항목은 기본값을 쓴다. */
+export interface MapVelocityLegend {
+    /** 범례 헤더 — 기본 "평균 속도 (mm/yr)" */
+    title?: string;
+    /** CSS gradient (linear-gradient 등) — 기본 RdBu */
+    gradient?: string;
+    /** 좌·중·우 라벨 — 숫자/문자 모두 허용. 기본 -30 / 0 / +30 */
+    min?: string | number;
+    mid?: string | number;
+    max?: string | number;
+}
+
 interface Props {
     children?: ReactNode;
     showLegend?: boolean;
     legend?: 'default' | 'velocity';
+    /** velocity 범례의 외관을 사용자 정의. legend !== 'velocity' 인 경우 무시. */
+    legendOptions?: MapVelocityLegend;
     style?: CSSProperties;
     onToolSelect?: (tool: MapTool) => void;
     activeTool?: MapTool;
@@ -77,6 +103,9 @@ interface Props {
     aoi?: Array<[number, number]> | null;
     /** Points overlay (used by InSAR time-series) */
     points?: MapPoint[];
+    /** Single static raster overlay above the basemap (e.g. InSAR product preview).
+     *  Pass `null`/omit to hide. */
+    raster?: MapRasterOverlay | null;
     /** Callback when user finishes drawing with the active tool.
      *  `geojson` is a standard GeoJSON geometry object (lon/lat). */
     onDrawEnd?: (tool: MapTool, geojson: DrawnGeometry) => void;
@@ -183,6 +212,7 @@ export function MapCanvas({
     children,
     showLegend = true,
     legend = 'default',
+    legendOptions,
     style = {},
     onToolSelect,
     activeTool,
@@ -192,6 +222,7 @@ export function MapCanvas({
     footprints,
     aoi,
     points,
+    raster,
     onDrawEnd,
     onMapClick,
     onAoiChange,
@@ -209,6 +240,7 @@ export function MapCanvas({
     const aoiSourceRef = useRef<VectorSource | null>(null);
     const drawSourceRef = useRef<VectorSource | null>(null);
     const pointSourceRef = useRef<VectorSource | null>(null);
+    const rasterLayerRef = useRef<ImageLayer<ImageStatic> | null>(null);
     const drawInteractionRef = useRef<Draw | null>(null);
     const modifyInteractionRef = useRef<Modify | null>(null);
     const translateInteractionRef = useRef<Translate | null>(null);
@@ -416,6 +448,50 @@ export function MapCanvas({
             src.addFeature(f);
         }
     }, [points]);
+
+    // Keep raster overlay in sync. 베이스 타일(index 0) 바로 위에 끼워서 footprint/AOI/점이
+    // 위쪽에 그대로 보이도록 한다.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map) return;
+        const existing = rasterLayerRef.current;
+        if (!raster) {
+            if (existing) {
+                map.removeLayer(existing);
+                existing.dispose();
+                rasterLayerRef.current = null;
+            }
+            return;
+        }
+        const [w, s, e, n] = raster.extent;
+        const [minX, minY] = fromLonLat([w, s]);
+        const [maxX, maxY] = fromLonLat([e, n]);
+        const ext3857: [number, number, number, number] = [minX, minY, maxX, maxY];
+        const op = raster.opacity ?? 1;
+        if (existing) {
+            existing.setOpacity(op);
+            const oldSource = existing.getSource();
+            const oldUrl = oldSource?.getUrl();
+            const oldExt = oldSource?.getImageExtent();
+            const sameExt =
+                oldExt &&
+                oldExt[0] === ext3857[0] &&
+                oldExt[1] === ext3857[1] &&
+                oldExt[2] === ext3857[2] &&
+                oldExt[3] === ext3857[3];
+            if (oldUrl === raster.src && sameExt) return;
+            existing.setSource(
+                new ImageStatic({ url: raster.src, imageExtent: ext3857, projection: 'EPSG:3857' }),
+            );
+            return;
+        }
+        const layer = new ImageLayer({
+            source: new ImageStatic({ url: raster.src, imageExtent: ext3857, projection: 'EPSG:3857' }),
+            opacity: op,
+        });
+        map.getLayers().insertAt(1, layer);
+        rasterLayerRef.current = layer;
+    }, [raster]);
 
     // Swap base tile layer when basemap toggles.
     // Setting a new source on the existing layer leaves the old tile cache intact,
@@ -691,8 +767,9 @@ export function MapCanvas({
         const parts: string[] = [];
         if (aoi) parts.push('aoi:' + aoi.length);
         if (footprints?.length) parts.push('fp:' + footprints.map((f) => f.id).join(','));
+        if (raster) parts.push('r:' + raster.extent.join(','));
         return parts.join('|');
-    }, [aoi, footprints]);
+    }, [aoi, footprints, raster]);
     const didFitRef = useRef(false);
     const lastFitKeyRef = useRef<string | undefined>(undefined);
     useEffect(() => {
@@ -706,6 +783,11 @@ export function MapCanvas({
             for (const [lon, lat] of fp.coords) coords.push(fromLonLat([lon, lat]));
         }
         if (aoi) for (const [lon, lat] of aoi) coords.push(fromLonLat([lon, lat]));
+        if (raster) {
+            const [w, s, e, n] = raster.extent;
+            coords.push(fromLonLat([w, s]));
+            coords.push(fromLonLat([e, n]));
+        }
         if (coords.length >= 2) {
             const extent = boundingExtent(coords);
             map.getView().fit(extent, {
@@ -716,7 +798,7 @@ export function MapCanvas({
             didFitRef.current = true;
             lastFitKeyRef.current = fitKey;
         }
-    }, [fitSignature, footprints, aoi, fitKey]);
+    }, [fitSignature, footprints, aoi, raster, fitKey]);
 
     const handleZoom = (delta: number) => {
         const view = mapRef.current?.getView();
@@ -782,7 +864,11 @@ export function MapCanvas({
                         aria-expanded={legendOpen}
                         onClick={() => setLegendOpen((v) => !v)}
                     >
-                        <span>{legend === 'velocity' ? '평균 속도 (mm/yr)' : 'Footprint'}</span>
+                        <span>
+                            {legend === 'velocity'
+                                ? legendOptions?.title ?? '평균 속도 (mm/yr)'
+                                : 'Footprint'}
+                        </span>
                         <Icon
                             name="chevronDown"
                             size={12}
@@ -801,6 +887,7 @@ export function MapCanvas({
                                         height: 10,
                                         borderRadius: 2,
                                         background:
+                                            legendOptions?.gradient ??
                                             'linear-gradient(to right, #2563eb, #60a5fa, #f1f5f9, #fb923c, #dc2626)',
                                         border: '1px solid var(--border-default)',
                                     }}
@@ -809,9 +896,9 @@ export function MapCanvas({
                                     className="between tabular"
                                     style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2 }}
                                 >
-                                    <span>−30</span>
-                                    <span>0</span>
-                                    <span>+30</span>
+                                    <span>{legendOptions?.min ?? '−30'}</span>
+                                    <span>{legendOptions?.mid ?? '0'}</span>
+                                    <span>{legendOptions?.max ?? '+30'}</span>
                                 </div>
                             </>
                         ) : (

@@ -29,10 +29,10 @@ const USER_ITEMS: NavItem[] = [
     },
     { label: 'InSAR', href: `${base}/user/insar`, icon: 'activity', match: (p) => p.includes('/user/insar') },
     {
-        label: '공공 데이터',
-        href: `${base}/user/public-datasets`,
+        label: 'AOI 관리',
+        href: `${base}/user/aois`,
         icon: 'folder',
-        match: (p) => p.includes('/user/public-datasets'),
+        match: (p) => p.includes('/user/aois'),
     },
 ];
 

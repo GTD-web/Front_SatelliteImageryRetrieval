@@ -1429,7 +1429,43 @@
 .results-header:hover {
     background: color-mix(in srgb, var(--text-primary) 2%, transparent);
 }
+/* 결과/타임라인 탭 위에 호버할 때는 패널 바의 호버 배경이 켜지지 않도록 한다. */
+.results-header:hover:has([role='tablist']:hover) {
+    background: transparent;
+}
 .results-header:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+/* 결과/타임라인 탭 버튼 — 활성 상태와 hover 상태를 분리한다. */
+.results-tab {
+    background: none;
+    border: 0;
+    padding: 4px 12px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: color 160ms ease, border-color 160ms ease, background 120ms ease;
+    border-top-left-radius: var(--r-sm);
+    border-top-right-radius: var(--r-sm);
+}
+.results-tab:hover {
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+}
+.results-tab[data-active='true'] {
+    color: var(--accent);
+    font-weight: 600;
+    border-bottom-color: var(--accent);
+}
+.results-tab[data-active='true']:hover {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.results-tab:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
 }
@@ -1885,7 +1921,8 @@
 }
 .map-zoom {
     position: absolute;
-    top: 12px;
+    /* 페이지별 우상단 액션 버튼(InSAR scene 선택 등)과 충돌하지 않도록 우하단 basemap 스위처 바로 위에 배치. */
+    bottom: 56px;
     right: 12px;
     display: flex;
     flex-direction: column;

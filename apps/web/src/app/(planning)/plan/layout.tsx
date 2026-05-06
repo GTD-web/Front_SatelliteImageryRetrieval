@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
 import { HifiCartProvider } from '@/_shared/contexts/HifiCartContext';
+import { SavedAoisProvider } from '@/_shared/contexts/SavedAoisContext';
 import {
     CartOverlayProvider,
     ConfirmProvider,
@@ -16,6 +17,7 @@ export default function PlanLayout({ children }: { children: ReactNode }) {
             <ToastProvider>
                 <ConfirmProvider>
                     <HifiCartProvider>
+                        <SavedAoisProvider>
                         <CartOverlayProvider>
                             <NotificationsOverlayProvider>
                                 <div
@@ -42,6 +44,7 @@ export default function PlanLayout({ children }: { children: ReactNode }) {
                                 </div>
                             </NotificationsOverlayProvider>
                         </CartOverlayProvider>
+                        </SavedAoisProvider>
                     </HifiCartProvider>
                 </ConfirmProvider>
             </ToastProvider>

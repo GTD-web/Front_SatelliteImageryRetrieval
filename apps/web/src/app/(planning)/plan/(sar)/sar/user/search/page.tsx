@@ -1,6 +1,7 @@
 'use client';
 
 import {
+    Suspense,
     useEffect,
     useLayoutEffect,
     useMemo,
@@ -11,8 +12,10 @@ import {
     type SetStateAction,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 import { useHifiCart, type HifiScene } from '@/_shared/contexts/HifiCartContext';
+import { aoiToRing, useSavedAois, type SavedAoi } from '@/_shared/contexts/SavedAoisContext';
 import {
     DateRangePicker,
     Icon,
@@ -27,6 +30,8 @@ import {
 import type { MapTool } from '@/_ui/hifi';
 
 import { MOCK_DEFAULT_AOI, MOCK_SCENES } from '../../../../_mocks/scenes';
+import { LoadAoiMenu, SaveAoiButton } from '../../_components/SavedAoiControls';
+import { RequestTimelinePanel } from '../../_components/SceneTimelinePanel';
 
 type ProductMode = 'slc' | 'others';
 type AoiField = 'nwLat' | 'nwLon' | 'seLat' | 'seLon';
@@ -110,12 +115,27 @@ function FilterDivider() {
 }
 
 export default function SearchPage() {
+    // useSearchParams 가 SSR 시 Suspense 경계를 요구. 페이지 본체를 별도 컴포넌트로 감싸 처리.
+    return (
+        <Suspense fallback={null}>
+            <SearchPageInner />
+        </Suspense>
+    );
+}
+
+function SearchPageInner() {
     const toast = useToast();
+    const router = useRouter();
+    const pathname = usePathname();
+    const searchParams = useSearchParams();
     const { has: inCart, add: addToCart, addMany: addManyToCart } = useHifiCart();
+    const { getById: getSavedAoiById } = useSavedAois();
 
     const [sceneModal, setSceneModal] = useState<HifiScene | null>(null);
     const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
     const [aoi, setAoi] = useState<Array<[number, number]> | null>(MOCK_DEFAULT_AOI);
+    /** 저장된 AOI 메뉴에서 호버 중인 항목. 지도에 임시 미리보기로 그려지지만 검색/필터 상태에는 영향 없음. */
+    const [previewAoi, setPreviewAoi] = useState<SavedAoi | null>(null);
     const [activeTool, setActiveTool] = useState<MapTool | undefined>(undefined);
     const [query, setQuery] = useState('');
     const [checked, setChecked] = useState<Set<string>>(() => new Set());
@@ -129,6 +149,7 @@ export default function SearchPage() {
     const [pendingSearch, setPendingSearch] = useState(false);
     const [fitKey, setFitKey] = useState('init');
     const [resultsOpen, setResultsOpen] = useState(true);
+    const [resultsTab, setResultsTab] = useState<'list' | 'timeline'>('list');
     const [aoiOpen, setAoiOpen] = useState(false);
     const [aoiPopPos, setAoiPopPos] = useState<{ top: number; left: number } | null>(null);
     const [aoiMounted, setAoiMounted] = useState(false);
@@ -136,6 +157,24 @@ export default function SearchPage() {
     const aoiPopRef = useRef<HTMLDivElement | null>(null);
     useEffect(() => {
         setAoiMounted(true);
+    }, []);
+
+    // ?aoi=<savedAoiId> 로 진입한 경우 라이브러리에서 찾아 즉시 적용한 뒤 쿼리 정리.
+    // 효과는 mount 1 회만 실행되도록 의도. searchParams 변동에는 반응하지 않음.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => {
+        const aoiParam = searchParams?.get('aoi');
+        if (!aoiParam) return;
+        const found = getSavedAoiById(aoiParam);
+        if (!found) {
+            toast('저장된 AOI 를 찾을 수 없습니다', { tone: 'warning' });
+        } else {
+            setAoi(aoiToRing(found));
+            setFitKey(`fit-aoi-${found.id}-${Date.now()}`);
+            toast(`"${found.name}" 적용됨`, { tone: 'success' });
+        }
+        // 쿼리스트링 제거(뒤로가기 시 또 적용되지 않도록).
+        if (pathname) router.replace(pathname);
     }, []);
     useEffect(() => {
         if (!aoiOpen) return;
@@ -793,14 +832,15 @@ export default function SearchPage() {
                         <MapCanvas
                             center={[129.37, 36.02]}
                             zoom={8}
-                            footprints={hasSearched ? footprints : []}
-                            aoi={aoi}
+                            // preview 중이면 그려진 AOI 대신 미리보기를 표시 — 호버를 떼면 원래 AOI 로 복귀.
+                            footprints={hasSearched && !previewAoi ? footprints : []}
+                            aoi={previewAoi ? aoiToRing(previewAoi) : aoi}
                             activeTool={activeTool}
                             onDrawEnd={handleDrawEnd}
                             onAoiChange={(coords) => {
+                                // 미리보기 중에는 사용자 편집을 무시 (preview 가 끝난 뒤 본 AOI 로 복귀하도록).
+                                if (previewAoi) return;
                                 setAoi(coords);
-                                // 이미 한 번 검색한 상태라면 AOI 변형(크기/이동)에 따라
-                                // 동일 필터로 재검색을 수행. 아직 검색 전이거나 진행 중이면 건너뜀.
                                 if (hasSearched && !isSearching) {
                                     executeSearch(appliedFilters);
                                 }
@@ -914,13 +954,46 @@ export default function SearchPage() {
                                         opacity: 0.75,
                                     }}
                                 />
-                                <span className="field-label" style={{ margin: 0 }}>
-                                    결과
-                                </span>
-                                <span className="faint" style={{ fontSize: 12 }}>
-                                    날짜 내림차순
-                                </span>
-                                {checked.size > 0 ? (
+                                {/* 결과/타임라인 탭 — 행 클릭으로 collapse 되지 않도록 stopPropagation. */}
+                                <div
+                                    role="tablist"
+                                    aria-label="결과 패널 탭"
+                                    className="row"
+                                    style={{ gap: 0, alignItems: 'center' }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onKeyDown={(e) => e.stopPropagation()}
+                                >
+                                    {(
+                                        [
+                                            ['list', '결과'],
+                                            ['timeline', '타임라인'],
+                                        ] as const
+                                    ).map(([key, label]) => {
+                                        const active = resultsTab === key;
+                                        return (
+                                            <button
+                                                key={key}
+                                                type="button"
+                                                role="tab"
+                                                aria-selected={active}
+                                                className="results-tab"
+                                                data-active={active}
+                                                onClick={() => {
+                                                    setResultsTab(key);
+                                                    setResultsOpen(true);
+                                                }}
+                                            >
+                                                {label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                {resultsTab === 'timeline' ? (
+                                    <span className="faint" style={{ fontSize: 12 }}>
+                                        핸들을 드래그해 검색 기간을 조정하세요
+                                    </span>
+                                ) : null}
+                                {resultsTab === 'list' && checked.size > 0 ? (
                                     <>
                                         <span className="faint">·</span>
                                         <span className="badge badge--accent">{checked.size} 선택됨</span>
@@ -938,44 +1011,46 @@ export default function SearchPage() {
                                     </>
                                 ) : null}
                             </div>
-                            {/* 검색/담기 컨트롤 — 패널이 닫혀 있어도 항상 보이며, 클릭 시 자기 동작 + 패널 오픈. */}
-                            <div
-                                className="row gap-2"
-                                onClick={(e) => e.stopPropagation()}
-                                onKeyDown={(e) => e.stopPropagation()}
-                            >
-                                <input
-                                    className="input input--search"
-                                    placeholder="scene ID 검색…"
-                                    style={{ width: 220, height: 28, fontSize: 12 }}
-                                    value={query}
-                                    onChange={(e) => setQuery(e.target.value)}
-                                    onFocus={() => setResultsOpen(true)}
-                                />
-                                {checked.size > 0 ? (
-                                    <button
-                                        type="button"
-                                        className="btn btn--primary btn--sm"
-                                        onClick={() => {
-                                            handleAddChecked();
-                                            setResultsOpen(true);
-                                        }}
-                                    >
-                                        <Icon name="cart" size={12} /> 선택한 {checked.size}개 담기
-                                    </button>
-                                ) : (
-                                    <button
-                                        type="button"
-                                        className="btn btn--sm"
-                                        onClick={() => {
-                                            handleAddAll();
-                                            setResultsOpen(true);
-                                        }}
-                                    >
-                                        <Icon name="cart" size={12} /> 전체 담기 ({filtered.length})
-                                    </button>
-                                )}
-                            </div>
+                            {/* 검색/담기 컨트롤 — 결과 탭에서만 노출. 패널이 닫혀 있어도 항상 보이며, 클릭 시 자기 동작 + 패널 오픈. */}
+                            {resultsTab === 'list' ? (
+                                <div
+                                    className="row gap-2"
+                                    onClick={(e) => e.stopPropagation()}
+                                    onKeyDown={(e) => e.stopPropagation()}
+                                >
+                                    <input
+                                        className="input input--search"
+                                        placeholder="scene ID 검색…"
+                                        style={{ width: 220, height: 28, fontSize: 12 }}
+                                        value={query}
+                                        onChange={(e) => setQuery(e.target.value)}
+                                        onFocus={() => setResultsOpen(true)}
+                                    />
+                                    {checked.size > 0 ? (
+                                        <button
+                                            type="button"
+                                            className="btn btn--primary btn--sm"
+                                            onClick={() => {
+                                                handleAddChecked();
+                                                setResultsOpen(true);
+                                            }}
+                                        >
+                                            <Icon name="cart" size={12} /> 선택한 {checked.size}개 담기
+                                        </button>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            className="btn btn--sm"
+                                            onClick={() => {
+                                                handleAddAll();
+                                                setResultsOpen(true);
+                                            }}
+                                        >
+                                            <Icon name="cart" size={12} /> 전체 담기 ({filtered.length})
+                                        </button>
+                                    )}
+                                </div>
+                            ) : null}
                         </div>
                         <div
                             style={{
@@ -986,6 +1061,8 @@ export default function SearchPage() {
                             aria-hidden={!resultsOpen}
                         >
                             <div style={{ minHeight: 0, overflow: 'hidden' }}>
+                        {resultsTab === 'list' ? (
+                            <>
                         {filtered.length > 0 ? (
                             <CompactStatsStrip scenes={filtered} totalGb={totalGb} />
                         ) : null}
@@ -1025,7 +1102,6 @@ export default function SearchPage() {
                                             <th>제품</th>
                                             <th>편광</th>
                                             <th>취득 시각</th>
-                                            <th>지역</th>
                                             <th className="num">용량</th>
                                             <th>상태</th>
                                             <th style={{ width: 120 }}></th>
@@ -1083,7 +1159,6 @@ export default function SearchPage() {
                                                 >
                                                     {s.date}
                                                 </td>
-                                                <td>{s.region}</td>
                                                 <td className="num tabular mono" style={{ fontSize: 12 }}>
                                                     {s.size}
                                                 </td>
@@ -1219,6 +1294,22 @@ export default function SearchPage() {
                                 </label>
                             </div>
                         </div>
+                            </>
+                        ) : (
+                            <RequestTimelinePanel
+                                showHeader={false}
+                                rangeStart={filters.startDate}
+                                rangeEnd={filters.endDate}
+                                onRangeChange={(s, e) =>
+                                    setFilters((f) => ({
+                                        ...f,
+                                        startDate: s,
+                                        endDate: e,
+                                        datePreset: '',
+                                    }))
+                                }
+                            />
+                        )}
                             </div>
                         </div>
                     </div>
@@ -1270,6 +1361,36 @@ export default function SearchPage() {
                           </div>
                           <div className="faint" style={{ fontSize: 11, lineHeight: 1.5 }}>
                               지도에서 사각형을 그리거나 좌상단(북서)·우하단(남동) 위경도를 직접 입력하세요.
+                          </div>
+                          <div
+                              className="row gap-2"
+                              style={{
+                                  paddingBottom: 10,
+                                  borderBottom: '1px solid var(--border-subtle)',
+                              }}
+                          >
+                              <SaveAoiButton bounds={aoiBounds} />
+                              <LoadAoiMenu
+                                  // Hover: 미리보기 + 해당 AOI 로 지도 fly. 팝오버가 닫히면 원래 AOI 로 복귀.
+                                  onHover={(a) => {
+                                      setPreviewAoi((prev) => {
+                                          if (a) {
+                                              setFitKey(`preview-${a.id}-${Date.now()}`);
+                                              return a;
+                                          }
+                                          // null — 팝오버가 닫혔다는 신호. 직전에 미리보기 중이었다면 원본 위치로 복귀.
+                                          if (prev) setFitKey(`back-${Date.now()}`);
+                                          return null;
+                                      });
+                                  }}
+                                  onApply={(a) => {
+                                      setAoi(aoiToRing(a));
+                                      setPreviewAoi(null);
+                                      setFitKey(`fit-aoi-${a.id}-${Date.now()}`);
+                                      setAoiOpen(false);
+                                      toast(`"${a.name}" 적용됨`, { tone: 'success' });
+                                  }}
+                              />
                           </div>
                           <div className="col gap-2">
                               <label className="field-label" style={{ margin: 0 }}>
