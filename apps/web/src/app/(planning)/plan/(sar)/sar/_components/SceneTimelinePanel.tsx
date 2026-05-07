@@ -180,10 +180,10 @@ export function SceneTimelineGraph({
     // 레이아웃 — 미션 lane 없이 단일 트랙
     const PAD_LEFT = 16;
     const PAD_RIGHT = 16;
-    const YEAR_H = 22;
-    const MONTH_H = 18;
+    const YEAR_H = 18;
+    const MONTH_H = 14;
     const HEADER_H = YEAR_H + MONTH_H;
-    const TRACK_H = 36;
+    const TRACK_H = 22;
     const lanesH = TRACK_H;
     const totalH = HEADER_H + TRACK_H;
     const innerW = Math.max(containerW - PAD_LEFT - PAD_RIGHT, 200);
@@ -234,6 +234,7 @@ export function SceneTimelineGraph({
     const draggedRef = useRef(false);
     const [grabbing, setGrabbing] = useState(false);
     const [draggingHandle, setDraggingHandle] = useState<'start' | 'end' | null>(null);
+    const [hoveredHandle, setHoveredHandle] = useState<'start' | 'end' | null>(null);
 
     /** 화면 X 좌표 → timestamp 로 환산. SVG 의 boundingRect 필요. */
     const xToTime = (clientX: number, svgEl: SVGSVGElement): number => {
@@ -373,8 +374,8 @@ export function SceneTimelineGraph({
                                 {cw >= 36 ? (
                                     <text
                                         x={cx}
-                                        y={YEAR_H / 2 + 4}
-                                        fontSize={11}
+                                        y={YEAR_H / 2 + 3.5}
+                                        fontSize={10.5}
                                         fontWeight={700}
                                         fill="var(--text-secondary)"
                                         textAnchor="middle"
@@ -405,8 +406,8 @@ export function SceneTimelineGraph({
                                 {cw >= 28 ? (
                                     <text
                                         x={cx}
-                                        y={YEAR_H + MONTH_H / 2 + 3.5}
-                                        fontSize={9.5}
+                                        y={YEAR_H + MONTH_H / 2 + 3}
+                                        fontSize={9}
                                         fill="var(--text-tertiary)"
                                         textAnchor="middle"
                                         fontFamily="var(--font-mono)"
@@ -416,8 +417,8 @@ export function SceneTimelineGraph({
                                 ) : cw >= 14 ? (
                                     <text
                                         x={cx}
-                                        y={YEAR_H + MONTH_H / 2 + 3.5}
-                                        fontSize={9}
+                                        y={YEAR_H + MONTH_H / 2 + 3}
+                                        fontSize={8.5}
                                         fill="var(--text-tertiary)"
                                         textAnchor="middle"
                                         fontFamily="var(--font-mono)"
@@ -560,15 +561,17 @@ export function SceneTimelineGraph({
                     {(['start', 'end'] as const).map((which) => {
                         const t = which === 'start' ? rangeStart.getTime() : rangeEnd.getTime();
                         const x = xFor(t);
-                        const dateStr = formatYmd(which === 'start' ? rangeStart : rangeEnd);
                         const isActive = draggingHandle === which;
+                        const isHovered = hoveredHandle === which || isActive;
                         return (
                             <g
-                                key={`handle-${which}`}
+                                key={`handle-line-${which}`}
                                 style={{ cursor: 'ew-resize' }}
                                 onMouseDown={onHandleMouseDown(which)}
+                                onMouseEnter={() => setHoveredHandle(which)}
+                                onMouseLeave={() => setHoveredHandle((h) => (h === which ? null : h))}
                             >
-                                <title>{`${which === 'start' ? '시작' : '종료'}: ${dateStr} (드래그로 조절)`}</title>
+                                {/* hit area */}
                                 <rect
                                     x={x - 8}
                                     y={0}
@@ -576,63 +579,66 @@ export function SceneTimelineGraph({
                                     height={totalH}
                                     fill="transparent"
                                 />
-                                <rect
-                                    x={x - 2}
-                                    y={0}
-                                    width={4}
-                                    height={totalH}
-                                    fill="var(--accent)"
-                                    fillOpacity={isActive ? 1 : 0.85}
-                                />
-                                <rect
-                                    x={x - 5}
-                                    y={HEADER_H - 10}
-                                    width={10}
-                                    height={20}
-                                    fill="var(--accent)"
-                                    rx={2}
-                                />
+                                {/* slim vertical handle line */}
                                 <line
-                                    x1={x - 1.5}
-                                    x2={x - 1.5}
-                                    y1={HEADER_H - 6}
-                                    y2={HEADER_H + 6}
-                                    stroke="#fff"
-                                    strokeWidth={0.7}
-                                    strokeOpacity={0.85}
+                                    x1={x}
+                                    x2={x}
+                                    y1={0}
+                                    y2={totalH}
+                                    stroke="var(--accent)"
+                                    strokeWidth={isHovered ? 2.5 : 1.5}
+                                    strokeOpacity={isHovered ? 1 : 0.9}
                                 />
-                                <line
-                                    x1={x + 1.5}
-                                    x2={x + 1.5}
-                                    y1={HEADER_H - 6}
-                                    y2={HEADER_H + 6}
-                                    stroke="#fff"
-                                    strokeWidth={0.7}
-                                    strokeOpacity={0.85}
-                                />
-                                <rect
-                                    x={x - 38}
-                                    y={totalH - 16}
-                                    width={76}
-                                    height={14}
-                                    fill="var(--accent)"
-                                    rx={2}
-                                />
-                                <text
-                                    x={x}
-                                    y={totalH - 5.5}
-                                    fontSize={9.5}
-                                    fontWeight={700}
-                                    fill="#fff"
-                                    textAnchor="middle"
-                                    fontFamily="var(--font-mono)"
-                                >
-                                    {dateStr}
-                                </text>
                             </g>
                         );
                     })}
                 </g>
+
+                {/* 핸들 날짜 라벨 — hover/drag 중에만 표시. clip 밖에서 그려 엣지에서 잘리지 않도록. */}
+                {(['start', 'end'] as const).map((which) => {
+                    const isActive = draggingHandle === which;
+                    const isHovered = hoveredHandle === which || isActive;
+                    if (!isHovered) return null;
+                    const t = which === 'start' ? rangeStart.getTime() : rangeEnd.getTime();
+                    const x = xFor(t);
+                    if (x < PAD_LEFT - 30 || x > PAD_LEFT + innerW + 30) return null;
+                    const dateStr = formatYmd(which === 'start' ? rangeStart : rangeEnd);
+                    const chipW = 56;
+                    const chipH = 13;
+                    const cxClamped = Math.min(
+                        Math.max(x, PAD_LEFT + chipW / 2 + 1),
+                        PAD_LEFT + innerW - chipW / 2 - 1,
+                    );
+                    return (
+                        <g
+                            key={`handle-label-${which}`}
+                            style={{ cursor: 'ew-resize', pointerEvents: 'none' }}
+                        >
+                            <title>{`${which === 'start' ? '시작' : '종료'}: ${dateStr}`}</title>
+                            <rect
+                                x={cxClamped - chipW / 2}
+                                y={1}
+                                width={chipW}
+                                height={chipH}
+                                rx={2.5}
+                                fill="var(--accent)"
+                                stroke="var(--accent)"
+                                strokeWidth={1}
+                            />
+                            <text
+                                x={cxClamped}
+                                y={1 + chipH / 2 + 3}
+                                fontSize={9}
+                                fontWeight={600}
+                                fill="#fff"
+                                textAnchor="middle"
+                                fontFamily="var(--font-mono)"
+                            >
+                                {dateStr}
+                            </text>
+                        </g>
+                    );
+                })}
             </svg>
         </div>
     );

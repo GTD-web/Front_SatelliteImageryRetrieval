@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { Icon } from './Icon';
@@ -9,10 +9,12 @@ interface Props {
     text: string;
     /** 아이콘 픽셀 크기. 기본 13. */
     size?: number;
-    /** 툴팁 위치. 기본 'right' (사이드바 아이콘 툴팁과 동일). */
+    /** 툴팁 위치. 기본 'right'. */
     placement?: 'top' | 'bottom' | 'right' | 'left';
     /** 인라인 스타일 (트리거 span). */
     style?: React.CSSProperties;
+    /** 트리거 방식. 기본 'click' — 클릭으로 열리고 외부 클릭 / Esc 로 닫힘. */
+    trigger?: 'click' | 'hover';
 }
 
 interface Coords {
@@ -27,55 +29,59 @@ interface Coords {
 const ENTER_OFFSET = 4;
 const ANIM_MS = 140;
 
-export function InfoTip({ text, size = 13, placement = 'right', style }: Props) {
+export function InfoTip({ text, size = 13, placement = 'right', style, trigger = 'click' }: Props) {
     const ref = useRef<HTMLSpanElement | null>(null);
+    const popoverRef = useRef<HTMLDivElement | null>(null);
     const [open, setOpen] = useState(false);
     const [mounted, setMounted] = useState(false);
     const [visible, setVisible] = useState(false);
     const [coords, setCoords] = useState<Coords | null>(null);
 
+    const computeCoords = (): Coords | null => {
+        if (!ref.current) return null;
+        const r = ref.current.getBoundingClientRect();
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        switch (placement) {
+            case 'top':
+                return {
+                    top: r.top - 6,
+                    left: cx,
+                    transform: 'translate(-50%, -100%)',
+                    transformHidden: `translate(-50%, calc(-100% + ${ENTER_OFFSET}px))`,
+                };
+            case 'bottom':
+                return {
+                    top: r.bottom + 6,
+                    left: cx,
+                    transform: 'translate(-50%, 0)',
+                    transformHidden: `translate(-50%, -${ENTER_OFFSET}px)`,
+                };
+            case 'left':
+                return {
+                    top: cy,
+                    left: r.left - 8,
+                    transform: 'translate(-100%, -50%)',
+                    transformHidden: `translate(calc(-100% + ${ENTER_OFFSET}px), -50%)`,
+                };
+            default:
+                return {
+                    top: cy,
+                    left: r.right + 8,
+                    transform: 'translate(0, -50%)',
+                    transformHidden: `translate(-${ENTER_OFFSET}px, -50%)`,
+                };
+        }
+    };
+
+    useLayoutEffect(() => {
+        if (!open) return;
+        setCoords(computeCoords());
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, placement, text]);
+
     useEffect(() => {
         if (open) {
-            if (ref.current) {
-                const r = ref.current.getBoundingClientRect();
-                const cx = r.left + r.width / 2;
-                const cy = r.top + r.height / 2;
-                let next: Coords;
-                switch (placement) {
-                    case 'top':
-                        next = {
-                            top: r.top - 6,
-                            left: cx,
-                            transform: 'translate(-50%, -100%)',
-                            transformHidden: `translate(-50%, calc(-100% + ${ENTER_OFFSET}px))`,
-                        };
-                        break;
-                    case 'bottom':
-                        next = {
-                            top: r.bottom + 6,
-                            left: cx,
-                            transform: 'translate(-50%, 0)',
-                            transformHidden: `translate(-50%, -${ENTER_OFFSET}px)`,
-                        };
-                        break;
-                    case 'left':
-                        next = {
-                            top: cy,
-                            left: r.left - 8,
-                            transform: 'translate(-100%, -50%)',
-                            transformHidden: `translate(calc(-100% + ${ENTER_OFFSET}px), -50%)`,
-                        };
-                        break;
-                    default:
-                        next = {
-                            top: cy,
-                            left: r.right + 8,
-                            transform: 'translate(0, -50%)',
-                            transformHidden: `translate(-${ENTER_OFFSET}px, -50%)`,
-                        };
-                }
-                setCoords(next);
-            }
             setMounted(true);
             // 두 프레임 뒤에 visible=true → 마운트 직후 hidden 상태가 그려진 뒤 transition 발동
             let raf2 = 0;
@@ -91,26 +97,76 @@ export function InfoTip({ text, size = 13, placement = 'right', style }: Props) 
             const t = setTimeout(() => setMounted(false), ANIM_MS);
             return () => clearTimeout(t);
         }
-    }, [open, placement]);
+    }, [open]);
+
+    // 클릭 모드: 외부 클릭 / Esc 로 닫기. + 스크롤/리사이즈 시 위치 재계산.
+    useEffect(() => {
+        if (!open) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setOpen(false);
+        };
+        const onDocClick = (e: MouseEvent) => {
+            const t = e.target as Node;
+            if (ref.current && ref.current.contains(t)) return;
+            if (popoverRef.current && popoverRef.current.contains(t)) return;
+            setOpen(false);
+        };
+        const onReflow = () => setCoords(computeCoords());
+        window.addEventListener('keydown', onKey);
+        window.addEventListener('mousedown', onDocClick, true);
+        window.addEventListener('scroll', onReflow, true);
+        window.addEventListener('resize', onReflow);
+        return () => {
+            window.removeEventListener('keydown', onKey);
+            window.removeEventListener('mousedown', onDocClick, true);
+            window.removeEventListener('scroll', onReflow, true);
+            window.removeEventListener('resize', onReflow);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open]);
+
+    const triggerHandlers =
+        trigger === 'hover'
+            ? {
+                  onMouseEnter: () => setOpen(true),
+                  onMouseLeave: () => setOpen(false),
+                  onFocus: () => setOpen(true),
+                  onBlur: () => setOpen(false),
+                  onClick: (e: React.MouseEvent) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                  },
+              }
+            : {
+                  onClick: (e: React.MouseEvent) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setOpen((o) => !o);
+                  },
+                  // form label 안에서도 키보드 토글이 동작하도록 직접 처리
+                  onKeyDown: (e: React.KeyboardEvent) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setOpen((o) => !o);
+                      }
+                  },
+              };
 
     return (
         <>
             <span
                 ref={ref}
-                onMouseEnter={() => setOpen(true)}
-                onMouseLeave={() => setOpen(false)}
-                onFocus={() => setOpen(true)}
-                onBlur={() => setOpen(false)}
-                onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                }}
+                {...triggerHandlers}
                 tabIndex={0}
+                role={trigger === 'click' ? 'button' : undefined}
                 aria-label={text}
+                aria-expanded={trigger === 'click' ? open : undefined}
                 style={{
                     display: 'inline-flex',
-                    color: 'var(--text-tertiary)',
-                    cursor: 'help',
+                    color: open ? 'var(--accent)' : 'var(--text-tertiary)',
+                    cursor: trigger === 'click' ? 'pointer' : 'help',
+                    transition: 'color 120ms ease',
                     ...style,
                 }}
             >
@@ -119,7 +175,9 @@ export function InfoTip({ text, size = 13, placement = 'right', style }: Props) 
             {mounted && coords && typeof document !== 'undefined'
                 ? createPortal(
                       <div
+                          ref={popoverRef}
                           role="tooltip"
+                          onMouseDown={(e) => e.stopPropagation()}
                           style={{
                               position: 'fixed',
                               top: coords.top,
@@ -129,14 +187,16 @@ export function InfoTip({ text, size = 13, placement = 'right', style }: Props) 
                               transition: `opacity ${ANIM_MS}ms ease, transform ${ANIM_MS}ms ease`,
                               maxWidth: 320,
                               width: 'max-content',
-                              padding: '4px 8px',
+                              padding: '6px 10px',
                               background: 'var(--bg-4)',
                               color: 'var(--text-primary)',
                               fontSize: 11,
-                              lineHeight: 1.45,
+                              lineHeight: 1.5,
                               borderRadius: 'var(--r-sm)',
                               boxShadow: 'var(--shadow-md)',
-                              pointerEvents: 'none',
+                              border: '1px solid var(--border-default)',
+                              // 클릭 모드는 텍스트 선택을 허용하기 위해 pointerEvents 가 필요
+                              pointerEvents: 'auto',
                               zIndex: 9999,
                           }}
                       >

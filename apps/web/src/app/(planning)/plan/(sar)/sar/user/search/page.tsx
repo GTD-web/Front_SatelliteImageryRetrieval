@@ -22,7 +22,6 @@ import {
     InfoTip,
     MapCanvas,
     Modal,
-    PageHeader,
     Quicklook,
     useToast,
     type MapFootprint,
@@ -160,6 +159,7 @@ function SearchPageInner() {
     }, []);
 
     // ?aoi=<savedAoiId> 로 진입한 경우 라이브러리에서 찾아 즉시 적용한 뒤 쿼리 정리.
+    // AOI 가 적용되면 곧바로 검색을 시작해 "scene 검색 중…" 오버레이가 뜨도록 한다 (InSAR 와 동일 UX).
     // 효과는 mount 1 회만 실행되도록 의도. searchParams 변동에는 반응하지 않음.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
@@ -172,6 +172,7 @@ function SearchPageInner() {
             setAoi(aoiToRing(found));
             setFitKey(`fit-aoi-${found.id}-${Date.now()}`);
             toast(`"${found.name}" 적용됨`, { tone: 'success' });
+            executeSearch(filters, { refit: false });
         }
         // 쿼리스트링 제거(뒤로가기 시 또 적용되지 않도록).
         if (pathname) router.replace(pathname);
@@ -476,13 +477,15 @@ function SearchPageInner() {
         setHasSearched(false);
         toast('필터 초기화됨');
     };
-    const executeSearch = (draft: Filters) => {
+    const executeSearch = (draft: Filters, opts?: { refit?: boolean }) => {
+        const refit = opts?.refit ?? true;
         setIsSearching(true);
         // 검색 요청 시뮬레이션 — 800ms 후 결과 적용 + 풋프린트에 맞춰 줌.
+        // refit=false 인 경우(예: AOI 라이브러리 적용 직후) 직전 AOI 줌을 유지한다.
         window.setTimeout(() => {
             setAppliedFilters(draft);
             setHasSearched(true);
-            setFitKey(`fit-${Date.now()}`);
+            if (refit) setFitKey(`fit-${Date.now()}`);
             setIsSearching(false);
             const next = MOCK_SCENES.filter((s) => sceneMatches(s, draft));
             toast(`${next.length}개 scene 검색 결과`, { tone: 'success' });
@@ -504,18 +507,6 @@ function SearchPageInner() {
 
     return (
         <div className="col" style={{ flex: 1, minHeight: 0 }}>
-            <PageHeader
-                breadcrumb={['홈', '검색']}
-                actions={
-                    <button
-                        type="button"
-                        className="btn btn--sm"
-                        onClick={() => toast('CDSE 카탈로그 동기화 중…', { tone: 'success' })}
-                    >
-                        <Icon name="refresh" size={13} /> 최신 새로고침
-                    </button>
-                }
-            />
             <div className="split" style={{ flex: 1 }}>
                 {/* LEFT filter panel */}
                 <aside className="split__side split__side--left" style={{ width: 280 }}>
@@ -814,6 +805,15 @@ function SearchPageInner() {
                         >
                             <Icon name="refresh" size={13} />
                         </button>
+                        <button
+                            type="button"
+                            className="btn btn--ghost btn--icon btn--sm"
+                            data-tooltip="CDSE 카탈로그 동기화"
+                            aria-label="CDSE 카탈로그 동기화"
+                            onClick={() => toast('CDSE 카탈로그 동기화 중…', { tone: 'success' })}
+                        >
+                            <Icon name="satellite" size={13} />
+                        </button>
                         </div>
                     </div>
                 </aside>
@@ -824,9 +824,9 @@ function SearchPageInner() {
                         style={{
                             flex: 1,
                             minHeight: 200,
-                            padding: '12px 16px 0',
                             transition: 'min-height 260ms ease',
                             position: 'relative',
+                            isolation: 'isolate',
                         }}
                     >
                         <MapCanvas
@@ -875,14 +875,13 @@ function SearchPageInner() {
                             aria-hidden={!isSearching}
                             style={{
                                 position: 'absolute',
-                                inset: '12px 16px 0',
+                                inset: 0,
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 background: 'rgba(15, 18, 22, 0.45)',
                                 backdropFilter: isSearching ? 'blur(2px)' : 'blur(0px)',
                                 zIndex: 10,
-                                borderRadius: 6,
                                 opacity: isSearching ? 1 : 0,
                                 pointerEvents: isSearching ? 'all' : 'none',
                                 transition: 'opacity 220ms ease, backdrop-filter 220ms ease',
@@ -925,8 +924,8 @@ function SearchPageInner() {
                         style={{
                             flex: '0 0 auto',
                             minHeight: 0,
-                            padding: resultsOpen ? '12px 16px 16px' : '4px 16px',
-                            transition: 'padding 200ms ease',
+                            borderTop: '1px solid var(--border-subtle)',
+                            background: 'var(--bg-2)',
                         }}
                     >
                         <div
@@ -942,7 +941,7 @@ function SearchPageInner() {
                                     setResultsOpen((v) => !v);
                                 }
                             }}
-                            style={{ marginBottom: resultsOpen ? 8 : 0 }}
+                            data-open={resultsOpen}
                         >
                             <div className="row gap-2" style={{ alignItems: 'center', flex: 1, minWidth: 0 }}>
                                 <Icon
@@ -1060,7 +1059,14 @@ function SearchPageInner() {
                             }}
                             aria-hidden={!resultsOpen}
                         >
-                            <div style={{ minHeight: 0, overflow: 'hidden' }}>
+                            <div
+                                style={{
+                                    minHeight: 0,
+                                    overflow: 'hidden',
+                                    // list 탭은 카드/필터를 위해 패딩, timeline 탭은 풀블리드 SVG 라 0.
+                                    padding: resultsTab === 'list' ? '8px 12px 12px' : 0,
+                                }}
+                            >
                         {resultsTab === 'list' ? (
                             <>
                         {filtered.length > 0 ? (

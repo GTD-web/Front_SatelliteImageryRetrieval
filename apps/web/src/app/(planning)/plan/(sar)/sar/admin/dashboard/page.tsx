@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 
-import { Icon, PageHeader, Sparkline, useToast, type IconName } from '@/_ui/hifi';
+import { Icon, Sparkline, useToast, type IconName } from '@/_ui/hifi';
 
 interface Kpi {
     label: string;
@@ -69,24 +69,19 @@ export default function AdminDashboardPage() {
 
     return (
         <div className="col" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-            <PageHeader
-                breadcrumb={['관리자', '대시보드']}
-                actions={
-                    <>
-                        <div className="segmented">
-                            <button type="button">1h</button>
-                            <button type="button" className="active">
-                                24h
-                            </button>
-                            <button type="button">7d</button>
-                            <button type="button">30d</button>
-                        </div>
-                        <button type="button" className="btn btn--sm" onClick={() => toast('새로고침됨')}>
-                            <Icon name="refresh" size={13} />
-                        </button>
-                    </>
-                }
-            />
+            <div className="toolbar" style={{ justifyContent: 'flex-end' }}>
+                <div className="segmented">
+                    <button type="button">1h</button>
+                    <button type="button" className="active">
+                        24h
+                    </button>
+                    <button type="button">7d</button>
+                    <button type="button">30d</button>
+                </div>
+                <button type="button" className="btn btn--sm" onClick={() => toast('새로고침됨')} aria-label="새로고침">
+                    <Icon name="refresh" size={13} />
+                </button>
+            </div>
             <div className="col gap-4" style={{ padding: 24 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
                     {KPIS.map((k) => (

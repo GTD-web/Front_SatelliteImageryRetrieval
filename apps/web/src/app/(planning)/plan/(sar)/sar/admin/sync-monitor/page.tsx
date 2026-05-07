@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 
-import { Icon, PageHeader, useToast } from '@/_ui/hifi';
+import { Icon, useToast } from '@/_ui/hifi';
 
 interface Run {
     aoi: string;
@@ -71,17 +71,12 @@ export default function SyncMonitorPage() {
 
     return (
         <div className="col" style={{ flex: 1, minHeight: 0 }}>
-            <PageHeader
-                breadcrumb={['관리자', 'Sync 모니터']}
-                actions={
-                    <>
-                        <span className="badge badge--danger">{failedCount} 실패</span>
-                        <button type="button" className="btn btn--sm" onClick={retryAll}>
-                            <Icon name="refresh" size={13} /> 전체 재시도
-                        </button>
-                    </>
-                }
-            />
+            <div className="toolbar" style={{ justifyContent: 'flex-end' }}>
+                <span className="badge badge--danger">{failedCount} 실패</span>
+                <button type="button" className="btn btn--sm" onClick={retryAll}>
+                    <Icon name="refresh" size={13} /> 전체 재시도
+                </button>
+            </div>
             <div className="col gap-3" style={{ padding: 24, flex: 1, overflow: 'auto' }}>
                 {failedCount > 0 ? (
                     <div

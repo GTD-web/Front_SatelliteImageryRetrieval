@@ -5,7 +5,6 @@ import { useMemo, useState } from 'react';
 import {
     Icon,
     MapCanvas,
-    PageHeader,
     ShapefileUploadModal,
     useToast,
     type MapFootprint,
@@ -189,19 +188,19 @@ export default function CrawlTargetsPage() {
 
     return (
         <div className="col" style={{ flex: 1, minHeight: 0 }}>
-            <PageHeader
-                breadcrumb={['관리자', '크롤 AOI']}
-                actions={
-                    <>
-                        <span className="faint" style={{ fontSize: 12 }}>
-                            지도 툴박스의 <b>폴리곤</b>·<b>사각형</b>으로 그려 바로 추가
-                        </span>
-                        <button type="button" className="btn btn--sm" onClick={() => setShpOpen(true)}>
-                            <Icon name="upload" size={13} /> SHP 업로드
-                        </button>
-                    </>
-                }
-            />
+            <div className="toolbar">
+                <span className="faint" style={{ fontSize: 12 }}>
+                    지도 툴박스의 <b>폴리곤</b>·<b>사각형</b>으로 그려 바로 추가
+                </span>
+                <button
+                    type="button"
+                    className="btn btn--sm"
+                    style={{ marginLeft: 'auto' }}
+                    onClick={() => setShpOpen(true)}
+                >
+                    <Icon name="upload" size={13} /> SHP 업로드
+                </button>
+            </div>
             <div className="split">
                 <div className="split__main">
                     <div style={{ flex: 1, padding: 16 }}>

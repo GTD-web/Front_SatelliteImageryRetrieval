@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-import { Icon, PageHeader, Quicklook, useToast } from '@/_ui/hifi';
+import { Icon, Quicklook, useToast } from '@/_ui/hifi';
 
 type ProductKind = 'SLC' | 'GRD' | 'OCN' | 'RAW';
 type JobStatus = 'running' | 'queued' | 'done' | 'failed';
@@ -270,21 +270,6 @@ export default function DownloadsPage() {
 
     return (
         <div className="col" style={{ flex: 1, minHeight: 0 }}>
-            <PageHeader
-                breadcrumb={['홈', '다운로드']}
-                actions={
-                    <>
-                        <span className="badge badge--success">
-                            <span className="dot" />
-                            실시간
-                        </span>
-                        <button type="button" className="btn btn--sm" onClick={() => toast('새로고침됨')}>
-                            <Icon name="refresh" size={13} />
-                        </button>
-                    </>
-                }
-            />
-
             <div className="toolbar">
                 <div className="row gap-1">
                     {kindTabs.map(([k, lbl, n]) => (
@@ -296,6 +281,15 @@ export default function DownloadsPage() {
                             {lbl} {n}
                         </span>
                     ))}
+                </div>
+                <div className="row gap-2" style={{ marginLeft: 'auto', alignItems: 'center' }}>
+                    <span className="badge badge--success">
+                        <span className="dot" />
+                        실시간
+                    </span>
+                    <button type="button" className="btn btn--sm" onClick={() => toast('새로고침됨')} aria-label="새로고침">
+                        <Icon name="refresh" size={13} />
+                    </button>
                 </div>
             </div>
 

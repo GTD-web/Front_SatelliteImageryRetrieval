@@ -790,7 +790,10 @@ export function MapCanvas({
         }
         if (coords.length >= 2) {
             const extent = boundingExtent(coords);
-            map.getView().fit(extent, {
+            const view = map.getView();
+            // 진행 중인 fit/animate 가 있으면 새 fit 이 큐에 쌓여 무시되므로 먼저 취소.
+            view.cancelAnimations();
+            view.fit(extent, {
                 padding: [40, 40, 40, 40],
                 maxZoom: 13,
                 duration: keyChanged ? 350 : 0,

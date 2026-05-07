@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 
-import { Icon, MapCanvas, PageHeader, useConfirm, useToast, type MapFootprint } from '@/_ui/hifi';
+import { Icon, MapCanvas, useConfirm, useToast, type MapFootprint } from '@/_ui/hifi';
 
 interface Req {
     id: string;
@@ -258,15 +258,6 @@ export default function ApprovalsPage() {
 
     return (
         <div className="col" style={{ flex: 1, minHeight: 0 }}>
-            <PageHeader
-                breadcrumb={['관리자', '승인 큐']}
-                actions={
-                    <>
-                        <span className="badge badge--warning">{reqs.length}건 대기</span>
-                        <span className="badge badge--neutral">NAS 여유 17.4 TB</span>
-                    </>
-                }
-            />
             <div className="toolbar">
                 <input type="checkbox" className="checkbox" checked={allChecked} onChange={toggleAll} />
                 <span className="faint" style={{ fontSize: 12 }}>
@@ -283,7 +274,9 @@ export default function ApprovalsPage() {
                         </span>
                     ))}
                 </div>
-                <div className="row gap-2" style={{ marginLeft: 'auto' }}>
+                <div className="row gap-2" style={{ marginLeft: 'auto', alignItems: 'center' }}>
+                    <span className="badge badge--warning">{reqs.length}건 대기</span>
+                    <span className="badge badge--neutral">NAS 여유 17.4 TB</span>
                     <button type="button" className="btn btn--sm" disabled={sel.size === 0} onClick={bulkReject}>
                         일괄 거절 {sel.size > 0 ? `(${sel.size})` : ''}
                     </button>

@@ -2,7 +2,6 @@ import {
     Activity,
     Bell,
     CheckSquare,
-    Database,
     Download,
     LayoutDashboard,
     Map,
@@ -31,7 +30,6 @@ export const adminRoutes: RouteDef[] = [
     { href: '/plan/sar/admin/users', label: '사용자', icon: Users },
     { href: '/plan/sar/admin/approvals', label: '승인', icon: CheckSquare },
     { href: '/plan/sar/admin/crawl-targets', label: 'AOI', icon: Map },
-    { href: '/plan/sar/admin/public-datasets', label: '공공데이터', icon: Database },
     { href: '/plan/sar/admin/sync-monitor', label: 'Sync', icon: Activity },
     { href: '/plan/sar/admin/audit-logs', label: '감사', icon: ScrollText },
 ];

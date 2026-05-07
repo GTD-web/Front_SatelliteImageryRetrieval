@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 import { useHifiCart } from '@/_shared/contexts/HifiCartContext';
-import { Icon, PageHeader, Quicklook, useConfirm, useToast } from '@/_ui/hifi';
+import { Icon, Quicklook, useConfirm, useToast } from '@/_ui/hifi';
 
 export default function CartPage() {
     const router = useRouter();
@@ -70,28 +70,6 @@ export default function CartPage() {
 
     return (
         <div className="col" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-            <PageHeader
-                breadcrumb={['홈', '장바구니']}
-                actions={
-                    <>
-                        <button
-                            type="button"
-                            className="btn btn--sm"
-                            onClick={() => router.push('/plan/sar/user/search')}
-                        >
-                            ← 검색으로
-                        </button>
-                        <button
-                            type="button"
-                            className="btn btn--sm"
-                            disabled={cart.length === 0}
-                            onClick={clearAll}
-                        >
-                            <Icon name="trash" size={13} /> 전체 비우기
-                        </button>
-                    </>
-                }
-            />
             <div className="col gap-4" style={{ padding: 24, flex: 1 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
                     <div className="kpi">
@@ -136,6 +114,21 @@ export default function CartPage() {
                             <span style={{ fontWeight: 600 }}>{sel.size} 선택됨</span>
                         </div>
                         <div className="row gap-2">
+                            <button
+                                type="button"
+                                className="btn btn--sm"
+                                onClick={() => router.push('/plan/sar/user/search')}
+                            >
+                                ← 검색으로
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn--sm"
+                                disabled={cart.length === 0}
+                                onClick={clearAll}
+                            >
+                                <Icon name="trash" size={13} /> 전체 비우기
+                            </button>
                             <button
                                 type="button"
                                 className="btn btn--sm"

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 
-import { Icon, PageHeader, useToast } from '@/_ui/hifi';
+import { Icon, useToast } from '@/_ui/hifi';
 
 interface Log {
     ts: string;
@@ -76,23 +76,6 @@ export default function AuditLogsPage() {
 
     return (
         <div className="col" style={{ flex: 1, minHeight: 0 }}>
-            <PageHeader
-                breadcrumb={['관리자', '감사 로그']}
-                actions={
-                    <>
-                        <button type="button" className="btn btn--sm" onClick={exportCsv}>
-                            <Icon name="download" size={12} /> CSV
-                        </button>
-                        <button
-                            type="button"
-                            className="btn btn--sm"
-                            onClick={() => toast('고급 필터 패널 준비 중')}
-                        >
-                            <Icon name="filter" size={13} /> 고급 필터
-                        </button>
-                    </>
-                }
-            />
             <div className="toolbar">
                 <input
                     className="input input--search"
@@ -112,9 +95,21 @@ export default function AuditLogsPage() {
                         </span>
                     ))}
                 </div>
-                <div className="input mono tabular" style={{ width: 180, marginLeft: 'auto' }}>
-                    <Icon name="calendar" size={12} style={{ marginRight: 6, opacity: 0.6 }} />
-                    최근 24시간
+                <div className="row gap-2" style={{ marginLeft: 'auto', alignItems: 'center' }}>
+                    <div className="input mono tabular" style={{ width: 180 }}>
+                        <Icon name="calendar" size={12} style={{ marginRight: 6, opacity: 0.6 }} />
+                        최근 24시간
+                    </div>
+                    <button type="button" className="btn btn--sm" onClick={exportCsv}>
+                        <Icon name="download" size={12} /> CSV
+                    </button>
+                    <button
+                        type="button"
+                        className="btn btn--sm"
+                        onClick={() => toast('고급 필터 패널 준비 중')}
+                    >
+                        <Icon name="filter" size={13} /> 고급 필터
+                    </button>
                 </div>
             </div>
             <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>

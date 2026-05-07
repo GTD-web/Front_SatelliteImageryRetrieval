@@ -21,7 +21,6 @@ import {
     InfoTip,
     MapCanvas,
     Modal,
-    PageHeader,
     Quicklook,
     useToast,
     type MapFootprint,
@@ -1029,7 +1028,6 @@ function InsarPageInner() {
 
     return (
         <div className="col" style={{ flex: 1, minHeight: 0 }}>
-            <PageHeader breadcrumb={['홈', 'InSAR 분석']} />
             <div className="split" style={{ flex: 1 }}>
                 <aside
                     className="split__side split__side--left"
@@ -1628,6 +1626,7 @@ function RequestSidebar({
                                 max={1}
                                 onChange={(v) => onChangeField('coherenceMin', v)}
                                 hint="0–1, 0.5 권장"
+                                info="픽셀별 위상 신뢰도(0~1). 이 값 미만의 픽셀은 결과에서 마스킹됩니다. 너무 높이면 분석 면적이 좁아지고, 너무 낮추면 노이즈가 결과에 섞입니다."
                             />
                             <div className="faint" style={{ fontSize: 11, lineHeight: 1.5 }}>
                                 Master/Slave 쌍은 아래 타임라인에서 직접 두 scene 을 선택하세요.
@@ -1646,6 +1645,7 @@ function RequestSidebar({
                                 min={5}
                                 onChange={(v) => onChangeField('minScenes', v)}
                                 hint="20개 이상 권장"
+                                info="시계열 분석에 사용할 최소 scene 장수. 적으면 PS 후보가 부족해 통계적으로 신뢰가 떨어집니다."
                             />
                             <NumberField
                                 label="PS 코히어런스 임계값"
@@ -1655,6 +1655,7 @@ function RequestSidebar({
                                 max={1}
                                 onChange={(v) => onChangeField('coherenceMin', v)}
                                 hint="0.7 권장"
+                                info="PS 후보 식별에 쓰이는 진폭 분산 / 시간 코히어런스 임계값. 보통 0.7 이상을 사용해 안정한 점만 남깁니다."
                             />
                             <div className="row gap-2">
                                 <LabeledInput
@@ -1685,6 +1686,7 @@ function RequestSidebar({
                                 min={6}
                                 onChange={(v) => onChangeField('temporalBaselineMaxDays', v)}
                                 hint="60일 권장"
+                                info="interferogram 페어 두 scene 간 허용 최대 시간 차이. 길수록 페어 수는 늘지만 시간적 디코히어런스(식생 변화 등)가 증가합니다."
                             />
                             <NumberField
                                 label="최대 공간 베이스라인 (m)"
@@ -1693,6 +1695,7 @@ function RequestSidebar({
                                 min={50}
                                 onChange={(v) => onChangeField('spatialBaselineMaxM', v)}
                                 hint="200m 권장"
+                                info="두 acquisition 의 위성 궤도 간 허용 최대 수직 거리(perpendicular baseline). 클수록 페어 수는 늘지만 기하학적 디코히어런스가 증가합니다."
                             />
                             <NumberField
                                 label="최소 코히어런스"
@@ -1702,6 +1705,7 @@ function RequestSidebar({
                                 max={1}
                                 onChange={(v) => onChangeField('coherenceMin', v)}
                                 hint="0.3 권장"
+                                info="interferogram 픽셀 마스킹 임계값. SBAS 는 분산형 산란체도 보존하므로 PSInSAR 보다 낮은 값을 사용합니다."
                             />
                         </div>
                     </Section>
@@ -1711,12 +1715,32 @@ function RequestSidebar({
                     <div className="col gap-2">
                         {(
                             [
-                                ['mean_velocity', 'mean_velocity', 'mm/yr'],
-                                ['coherence', 'coherence', '0–1'],
-                                ['cumulative_disp', 'cumulative_disp', 'mm'],
-                                ['wrapped_phase', 'wrapped_phase', 'rad'],
+                                [
+                                    'mean_velocity',
+                                    'mean_velocity',
+                                    'mm/yr',
+                                    '분석 기간 동안의 평균 LOS 변위 속도. 양수=위성 방향으로 접근, 음수=멀어짐. 가장 일반적으로 쓰이는 산출물.',
+                                ],
+                                [
+                                    'coherence',
+                                    'coherence',
+                                    '0–1',
+                                    'interferogram 페어 / PS 의 평균 코히어런스 맵 (0~1). 분석 결과의 신뢰도/유효 영역을 판단하는 데 사용.',
+                                ],
+                                [
+                                    'cumulative_disp',
+                                    'cumulative_disp',
+                                    'mm',
+                                    '기준 epoch 부터의 누적 LOS 변위. 시계열로 변위 진행을 보여주며, 산사태/지반 침하 추적에 사용.',
+                                ],
+                                [
+                                    'wrapped_phase',
+                                    'wrapped_phase',
+                                    'rad',
+                                    '위상 차이를 -π~π 로 wrap 한 raw 결과. fringe 패턴 시각화 / unwrap 전 진단용.',
+                                ],
                             ] as const
-                        ).map(([k, label, unit]) => {
+                        ).map(([k, label, unit, desc]) => {
                             const on = form.layers.has(k);
                             return (
                                 <label
@@ -1733,8 +1757,12 @@ function RequestSidebar({
                                     <span className="mono" style={{ fontSize: 12, fontWeight: on ? 600 : 400 }}>
                                         {label}
                                     </span>
-                                    <span className="faint" style={{ fontSize: 11, marginLeft: 'auto' }}>
+                                    <span
+                                        className="faint"
+                                        style={{ fontSize: 11, marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                                    >
                                         {unit}
+                                        <InfoTip text={desc} size={11} placement="left" />
                                     </span>
                                 </label>
                             );
@@ -2238,10 +2266,12 @@ function ResultsBottomPanel({ points, onExport }: { points: Point[]; onExport: (
 function Section({
     title,
     hint,
+    info,
     children,
 }: {
     title: string;
     hint?: string;
+    info?: string;
     children: React.ReactNode;
 }) {
     return (
@@ -2252,7 +2282,10 @@ function Section({
             }}
         >
             <div className="col" style={{ gap: 2, marginBottom: 8 }}>
-                <span style={{ fontSize: 12, fontWeight: 600 }}>{title}</span>
+                <div className="row" style={{ alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>{title}</span>
+                    {info ? <InfoTip text={info} size={12} /> : null}
+                </div>
                 {hint ? (
                     <span className="faint" style={{ fontSize: 11, lineHeight: 1.5 }}>
                         {hint}
@@ -2296,6 +2329,7 @@ function NumberField({
     min,
     max,
     hint,
+    info,
 }: {
     label: string;
     value: number;
@@ -2304,11 +2338,15 @@ function NumberField({
     min?: number;
     max?: number;
     hint?: string;
+    info?: string;
 }) {
     return (
         <div className="col" style={{ gap: 3 }}>
             <div className="row" style={{ alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 11.5, flex: 1 }}>{label}</span>
+                <span className="row" style={{ alignItems: 'center', gap: 5, flex: 1, fontSize: 11.5 }}>
+                    {label}
+                    {info ? <InfoTip text={info} size={11} /> : null}
+                </span>
                 <input
                     type="number"
                     className="input mono tabular"

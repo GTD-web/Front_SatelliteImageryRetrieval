@@ -952,6 +952,8 @@
 .sidenav__avatar {
     width: 32px;
     height: 32px;
+    border: 0;
+    padding: 0;
     border-radius: 50%;
     background: linear-gradient(135deg, var(--brand-2), var(--accent));
     color: var(--accent-fg);
@@ -962,59 +964,51 @@
     font-size: 11px;
     cursor: pointer;
     flex-shrink: 0;
+    position: relative;
+    transition: box-shadow 140ms ease, transform 120ms ease;
+}
+.sidenav__avatar:hover {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.sidenav__avatar[data-open='true'] {
+    box-shadow: 0 0 0 2px var(--accent);
 }
 
-/* ═════ 역할 전환 select (PageHeader 내부) ═════ */
-.role-select {
+/* ═════ 역할 전환 segmented (사이드바 아바타 popover 내부) ═════ */
+.role-switcher {
     display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 28px;
-    padding: 0 4px 0 10px;
-    background: var(--bg-2);
+    background: var(--bg-1);
     border: 1px solid var(--border-default);
     border-radius: var(--r-sm);
+    padding: 2px;
+    gap: 2px;
+}
+.role-switcher__btn {
+    flex: 1;
+    background: transparent;
+    border: 0;
+    padding: 5px 12px;
     font-size: 12px;
+    font-weight: 500;
     color: var(--text-secondary);
     cursor: pointer;
+    border-radius: 4px;
+    transition: background 120ms ease, color 120ms ease;
 }
-.role-select:hover {
-    border-color: var(--border-strong, var(--border-default));
-}
-.role-select__label {
-    font-size: 10px;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    font-weight: 600;
-    color: var(--text-tertiary);
-}
-.role-select__input {
-    height: 100%;
-    padding: 0 20px 0 4px;
-    background: transparent;
-    border: none;
+.role-switcher__btn:hover {
     color: var(--text-primary);
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    appearance: none;
-    -webkit-appearance: none;
-    background-image:
-        linear-gradient(45deg, transparent 50%, currentColor 50%),
-        linear-gradient(135deg, currentColor 50%, transparent 50%);
-    background-position:
-        right 8px center,
-        right 4px center;
-    background-size:
-        4px 4px,
-        4px 4px;
-    background-repeat: no-repeat;
-    opacity: 0.9;
+    background: color-mix(in srgb, var(--text-primary) 4%, transparent);
 }
-.role-select__input:focus-visible {
+.role-switcher__btn[data-active='true'] {
+    background: var(--accent);
+    color: var(--accent-fg, #fff);
+}
+.role-switcher__btn[data-active='true']:hover {
+    background: var(--accent);
+}
+.role-switcher__btn:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
-    border-radius: var(--r-xs);
 }
 
 .kbd {
@@ -1093,41 +1087,6 @@
 .sidebar__item--active .sidebar__badge {
     background: var(--accent);
     color: var(--accent-fg);
-}
-
-/* ═════ PageHeader ═════ */
-.page-header {
-    min-height: 40px;
-    padding: 4px 20px;
-    border-bottom: 1px solid var(--border-subtle);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    flex-shrink: 0;
-}
-.page-header__title {
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    line-height: 1.2;
-}
-.page-header__breadcrumb {
-    font-size: 12px;
-    color: var(--text-tertiary);
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    line-height: 1.2;
-}
-.page-header__breadcrumb .sep {
-    opacity: 0.5;
-}
-.page-header__sub {
-    font-size: 12px;
-    color: var(--text-secondary);
-    max-width: 720px;
-    line-height: 1.2;
 }
 
 /* ═════ DateRangePicker ═════ */
@@ -1419,12 +1378,13 @@
 
 /* ═════ Collapsible results header (row toggles panel) ═════ */
 .results-header {
-    padding: 4px 8px;
-    margin-left: -8px;
-    margin-right: -8px;
-    border-radius: var(--r-sm);
+    padding: 8px 14px;
     cursor: pointer;
-    transition: background 120ms ease;
+    transition: background 120ms ease, border-bottom-color 220ms ease;
+    border-bottom: 1px solid transparent;
+}
+.results-header[data-open='true'] {
+    border-bottom-color: var(--border-subtle);
 }
 .results-header:hover {
     background: color-mix(in srgb, var(--text-primary) 2%, transparent);
@@ -1435,7 +1395,7 @@
 }
 .results-header:focus-visible {
     outline: 2px solid var(--accent);
-    outline-offset: 1px;
+    outline-offset: -2px;
 }
 
 /* 결과/타임라인 탭 버튼 — 활성 상태와 hover 상태를 분리한다. */
@@ -1776,8 +1736,8 @@
         radial-gradient(ellipse at 30% 20%, rgba(34, 211, 238, 0.06), transparent 50%),
         radial-gradient(ellipse at 70% 60%, rgba(129, 140, 248, 0.05), transparent 50%), var(--bg-0);
     overflow: hidden;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--r-md);
+    border: 0;
+    border-radius: 0;
 }
 [data-theme='light'] .map-stage {
     background:

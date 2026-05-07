@@ -1,10 +1,10 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
-import { useSavedAois, type SavedAoi } from '@/_shared/contexts/SavedAoisContext';
-import { Icon, Modal, PageHeader, useConfirm, useToast } from '@/_ui/hifi';
+import { aoiRingToBounds, useSavedAois, type SavedAoi } from '@/_shared/contexts/SavedAoisContext';
+import { Icon, MapCanvas, Modal, useConfirm, useToast, type MapTool } from '@/_ui/hifi';
 
 import { AoiThumbnail } from '../../_components/AoiThumbnail';
 
@@ -44,18 +44,6 @@ export default function AoisPage() {
 
     return (
         <div className="col" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-            <PageHeader
-                breadcrumb={['홈', 'AOI 관리']}
-                actions={
-                    <button
-                        type="button"
-                        className="btn btn--primary btn--sm"
-                        onClick={() => setCreateOpen(true)}
-                    >
-                        <Icon name="plus" size={13} /> 새 AOI 등록
-                    </button>
-                }
-            />
             <div className="toolbar">
                 <input
                     className="input input--search"
@@ -64,9 +52,17 @@ export default function AoisPage() {
                     value={q}
                     onChange={(e) => setQ(e.target.value)}
                 />
-                <span className="faint" style={{ fontSize: 12, marginLeft: 'auto' }}>
+                <span className="faint" style={{ fontSize: 12 }}>
                     {filtered.length} / {list.length}
                 </span>
+                <button
+                    type="button"
+                    className="btn btn--primary btn--sm"
+                    style={{ marginLeft: 'auto' }}
+                    onClick={() => setCreateOpen(true)}
+                >
+                    <Icon name="plus" size={13} /> 새 AOI 등록
+                </button>
             </div>
             <div
                 style={{
@@ -235,6 +231,55 @@ function CreateAoiModal({
     const [nwLon, setNwLon] = useState('');
     const [seLat, setSeLat] = useState('');
     const [seLon, setSeLon] = useState('');
+    /** 지도에서 그린 bbox(또는 form 좌표가 유효할 때 파생되는 ring). 미입력이면 null. */
+    const [aoiRing, setAoiRing] = useState<Array<[number, number]> | null>(null);
+    const [activeTool, setActiveTool] = useState<MapTool | undefined>('bbox');
+
+    /** form 의 NW/SE 좌표가 모두 유효하면 ring 으로 변환. 사용자가 좌표를 직접 입력했을 때 지도에 반영. */
+    const formRing = useMemo<Array<[number, number]> | null>(() => {
+        const nlat = parseFloat(nwLat);
+        const nlon = parseFloat(nwLon);
+        const slat = parseFloat(seLat);
+        const slon = parseFloat(seLon);
+        if (![nlat, nlon, slat, slon].every(Number.isFinite)) return null;
+        if (nlat <= slat || slon <= nlon) return null;
+        return [
+            [nlon, nlat],
+            [slon, nlat],
+            [slon, slat],
+            [nlon, slat],
+            [nlon, nlat],
+        ];
+    }, [nwLat, nwLon, seLat, seLon]);
+
+    /** 지도에 그릴 AOI 우선순위: 그리기로 캡처된 ring → form 으로 파생된 ring. */
+    const mapAoi = aoiRing ?? formRing;
+
+    /** 그리기/입력으로 ring 이 갱신되면 NW/SE 입력박스 동기화. */
+    const applyRing = (ring: Array<[number, number]>) => {
+        const bounds = aoiRingToBounds(ring);
+        if (!bounds) return;
+        setAoiRing(ring);
+        setNwLat(bounds.nwLat.toFixed(4));
+        setNwLon(bounds.nwLon.toFixed(4));
+        setSeLat(bounds.seLat.toFixed(4));
+        setSeLon(bounds.seLon.toFixed(4));
+    };
+
+    const handleDrawEnd = (
+        _tool: MapTool,
+        geom: { type: string; coordinates: unknown },
+    ) => {
+        if (geom.type === 'Polygon' && Array.isArray(geom.coordinates)) {
+            const ring = (geom.coordinates as number[][][])[0];
+            if (ring && ring.length >= 3) {
+                const coords = ring.map(([lon, lat]) => [lon, lat] as [number, number]);
+                applyRing(coords);
+                toast('AOI 영역이 캡처되었습니다', { tone: 'success' });
+            }
+        }
+        setActiveTool(undefined);
+    };
 
     const onSubmit = () => {
         const trimmed = name.trim();
@@ -247,7 +292,7 @@ function CreateAoiModal({
         const slat = parseFloat(seLat);
         const slon = parseFloat(seLon);
         if (![nlat, nlon, slat, slon].every(Number.isFinite)) {
-            toast('NW/SE 좌표를 모두 입력해주세요', { tone: 'warning' });
+            toast('지도에서 사각형을 그리거나 NW/SE 좌표를 입력해주세요', { tone: 'warning' });
             return;
         }
         if (nlat <= slat || slon <= nlon) {
@@ -267,7 +312,8 @@ function CreateAoiModal({
     return (
         <Modal
             title="새 AOI 등록"
-            sub="이름과 좌상단(NW)/우하단(SE) 좌표를 입력하세요. 직사각형 bbox 로 저장됩니다."
+            sub="지도에서 사각형을 그려 영역을 지정하거나, 좌표를 직접 입력해 등록할 수 있습니다."
+            size="xl"
             onClose={onClose}
             footer={(close) => (
                 <>
@@ -280,71 +326,153 @@ function CreateAoiModal({
                 </>
             )}
         >
-            <div className="col gap-3">
-                <label className="col gap-1">
-                    <span className="field-label" style={{ margin: 0 }}>
-                        이름 *
-                    </span>
-                    <input
-                        className="input"
-                        autoFocus
-                        placeholder="예: 부산 신항"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                    />
-                </label>
-                <label className="col gap-1">
-                    <span className="field-label" style={{ margin: 0 }}>
-                        설명 (선택)
-                    </span>
-                    <input
-                        className="input"
-                        placeholder="예: 항만 침하 모니터링"
-                        value={desc}
-                        onChange={(e) => setDesc(e.target.value)}
-                    />
-                </label>
-                <div className="col gap-1">
-                    <span className="field-label" style={{ margin: 0 }}>
-                        좌상단 (NW)
-                    </span>
-                    <div className="row gap-2">
-                        <input
-                            className="input mono tabular"
-                            placeholder="위도 (°N)"
-                            value={nwLat}
-                            onChange={(e) => setNwLat(e.target.value)}
-                            style={{ flex: 1 }}
-                        />
-                        <input
-                            className="input mono tabular"
-                            placeholder="경도 (°E)"
-                            value={nwLon}
-                            onChange={(e) => setNwLon(e.target.value)}
-                            style={{ flex: 1 }}
-                        />
-                    </div>
+            <div className="row gap-3" style={{ alignItems: 'stretch', minHeight: 460 }}>
+                <div
+                    style={{
+                        flex: '1 1 60%',
+                        minHeight: 460,
+                        position: 'relative',
+                        borderRadius: 6,
+                        overflow: 'hidden',
+                        border: '1px solid var(--border-subtle)',
+                    }}
+                >
+                    <MapCanvas
+                        center={[129.0, 36.2]}
+                        zoom={7}
+                        aoi={mapAoi}
+                        activeTool={activeTool}
+                        onToolSelect={(t) => setActiveTool(t)}
+                        tools={['bbox']}
+                        onDrawEnd={handleDrawEnd}
+                        onAoiChange={(coords) => applyRing(coords)}
+                        fitKey={mapAoi ? 'aoi-set' : 'aoi-empty'}
+                    >
+                        {activeTool === 'bbox' ? (
+                            <div
+                                style={{
+                                    position: 'absolute',
+                                    top: 12,
+                                    left: '50%',
+                                    transform: 'translateX(-50%)',
+                                    zIndex: 6,
+                                    background: 'var(--bg-2)',
+                                    border: '1px solid var(--border-default)',
+                                    borderRadius: 6,
+                                    padding: '6px 12px',
+                                    fontSize: 12.5,
+                                    boxShadow: 'var(--shadow-md)',
+                                    pointerEvents: 'none',
+                                }}
+                            >
+                                지도에서 드래그해 사각형 AOI 를 그리세요 · ESC 로 취소
+                            </div>
+                        ) : null}
+                    </MapCanvas>
                 </div>
-                <div className="col gap-1">
-                    <span className="field-label" style={{ margin: 0 }}>
-                        우하단 (SE)
-                    </span>
-                    <div className="row gap-2">
+                <div className="col gap-3" style={{ flex: '1 1 40%', minWidth: 280 }}>
+                    <label className="col gap-1">
+                        <span className="field-label" style={{ margin: 0 }}>
+                            이름 *
+                        </span>
                         <input
-                            className="input mono tabular"
-                            placeholder="위도 (°N)"
-                            value={seLat}
-                            onChange={(e) => setSeLat(e.target.value)}
-                            style={{ flex: 1 }}
+                            className="input"
+                            autoFocus
+                            placeholder="예: 부산 신항"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
                         />
+                    </label>
+                    <label className="col gap-1">
+                        <span className="field-label" style={{ margin: 0 }}>
+                            설명 (선택)
+                        </span>
                         <input
-                            className="input mono tabular"
-                            placeholder="경도 (°E)"
-                            value={seLon}
-                            onChange={(e) => setSeLon(e.target.value)}
-                            style={{ flex: 1 }}
+                            className="input"
+                            placeholder="예: 항만 침하 모니터링"
+                            value={desc}
+                            onChange={(e) => setDesc(e.target.value)}
                         />
+                    </label>
+                    <div className="col gap-1">
+                        <span className="field-label" style={{ margin: 0 }}>
+                            좌상단 (NW)
+                        </span>
+                        <div className="row gap-2">
+                            <input
+                                className="input mono tabular"
+                                placeholder="위도 (°N)"
+                                value={nwLat}
+                                onChange={(e) => {
+                                    setNwLat(e.target.value);
+                                    setAoiRing(null);
+                                }}
+                                style={{ flex: 1 }}
+                            />
+                            <input
+                                className="input mono tabular"
+                                placeholder="경도 (°E)"
+                                value={nwLon}
+                                onChange={(e) => {
+                                    setNwLon(e.target.value);
+                                    setAoiRing(null);
+                                }}
+                                style={{ flex: 1 }}
+                            />
+                        </div>
                     </div>
+                    <div className="col gap-1">
+                        <span className="field-label" style={{ margin: 0 }}>
+                            우하단 (SE)
+                        </span>
+                        <div className="row gap-2">
+                            <input
+                                className="input mono tabular"
+                                placeholder="위도 (°N)"
+                                value={seLat}
+                                onChange={(e) => {
+                                    setSeLat(e.target.value);
+                                    setAoiRing(null);
+                                }}
+                                style={{ flex: 1 }}
+                            />
+                            <input
+                                className="input mono tabular"
+                                placeholder="경도 (°E)"
+                                value={seLon}
+                                onChange={(e) => {
+                                    setSeLon(e.target.value);
+                                    setAoiRing(null);
+                                }}
+                                style={{ flex: 1 }}
+                            />
+                        </div>
+                    </div>
+                    {mapAoi ? (
+                        <div className="row gap-1" style={{ marginTop: 'auto' }}>
+                            <button
+                                type="button"
+                                className="btn btn--ghost btn--sm"
+                                onClick={() => {
+                                    setAoiRing(null);
+                                    setNwLat('');
+                                    setNwLon('');
+                                    setSeLat('');
+                                    setSeLon('');
+                                    setActiveTool('bbox');
+                                }}
+                            >
+                                <Icon name="trash" size={12} /> 영역 지우기
+                            </button>
+                        </div>
+                    ) : (
+                        <div
+                            className="muted"
+                            style={{ marginTop: 'auto', fontSize: 12, lineHeight: 1.5 }}
+                        >
+                            지도에서 사각형을 드래그하면 NW/SE 좌표가 자동으로 채워집니다.
+                        </div>
+                    )}
                 </div>
             </div>
         </Modal>

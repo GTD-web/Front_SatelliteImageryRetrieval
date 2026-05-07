@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 
-import { Icon, PageHeader, useConfirm, useToast } from '@/_ui/hifi';
+import { Icon, useConfirm, useToast } from '@/_ui/hifi';
 
 type UserStatus = 'active' | 'pending' | 'inactive';
 type UserRole = 'admin' | 'downloader' | 'viewer' | 'pending';
@@ -77,18 +77,6 @@ export default function UsersPage() {
 
     return (
         <div className="col" style={{ flex: 1, minHeight: 0 }}>
-            <PageHeader
-                breadcrumb={['관리자', '사용자']}
-                actions={
-                    <button
-                        type="button"
-                        className="btn btn--primary btn--sm"
-                        onClick={() => toast('초대 메일 입력 폼 준비 중')}
-                    >
-                        <Icon name="plus" size={13} /> 초대
-                    </button>
-                }
-            />
             <div className="toolbar">
                 <input
                     className="input input--search"
@@ -129,7 +117,7 @@ export default function UsersPage() {
                         비활성 {counts.inactive}
                     </span>
                 </div>
-                <div className="row gap-2" style={{ marginLeft: 'auto' }}>
+                <div className="row gap-2" style={{ marginLeft: 'auto', alignItems: 'center' }}>
                     <span className="faint" style={{ fontSize: 12 }}>
                         역할
                     </span>
@@ -145,6 +133,13 @@ export default function UsersPage() {
                         <option>viewer</option>
                         <option>pending</option>
                     </select>
+                    <button
+                        type="button"
+                        className="btn btn--primary btn--sm"
+                        onClick={() => toast('초대 메일 입력 폼 준비 중')}
+                    >
+                        <Icon name="plus" size={13} /> 초대
+                    </button>
                 </div>
             </div>
             <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
