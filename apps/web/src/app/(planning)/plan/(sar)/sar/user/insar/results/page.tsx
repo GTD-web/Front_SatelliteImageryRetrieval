@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
     CartesianGrid,
     Legend,
@@ -24,8 +24,10 @@ import {
     type MapVelocityLegend,
 } from '@/_ui/hifi';
 
+import { Section, typeBadge } from '../_shared';
+
 // ────────────────────────────────────────────────────────────────────────────
-// 타입 / 데이터
+// 결과(완료된 산출물) 모킹 데이터
 // ────────────────────────────────────────────────────────────────────────────
 
 interface InsarProduct {
@@ -92,6 +94,69 @@ const PRODUCTS: InsarProduct[] = [
     },
 ];
 
+const POINT_COLORS = ['#dc2626', '#2563eb', '#10b981', '#f59e0b', '#a855f7', '#06b6d4', '#f472b6', '#84cc16'];
+
+const TIMESERIES_DATES = [
+    '25-10', '25-11', '25-12', '26-01', '26-02', '26-03',
+    '26-04', '26-05', '26-06', '26-07', '26-08', '26-09',
+];
+
+interface SceneItem {
+    id: string;
+    date: string;
+    role: 'master' | 'slave';
+    polarization: string;
+    size: string;
+}
+
+function generateScenes(product: InsarProduct): SceneItem[] {
+    const [startStr] = product.range.split(' ~ ');
+    const start = startStr.length >= 10 ? new Date(startStr) : new Date(`${startStr}-01`);
+    const stepDays = 12;
+    const polarization = 'VV+VH';
+    const sceneSize = product.type === 'PSInSAR' || product.type === 'SBAS' ? '4.1 GB' : '1.7 GB';
+    const missionPrefix = product.mission.includes('S1C') ? 'S1C' : 'S1A';
+    const productSuffix = product.type === 'DInSAR' ? 'GRDH_1SDV' : 'SLC__1SDV';
+    return Array.from({ length: product.scenes }).map((_, i) => {
+        const d = new Date(start);
+        d.setDate(d.getDate() + i * stepDays);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        const id = `${missionPrefix}_IW_${productSuffix}_${yyyy}${mm}${dd}T211515_${yyyy}${mm}${dd}T211544_0${(i % 9) + 1}A123_2B${(i % 16).toString(16).padStart(2, '0').toUpperCase()}`;
+        return {
+            id,
+            date: `${yyyy}-${mm}-${dd}`,
+            role: i === 0 ? 'master' : 'slave',
+            polarization,
+            size: sceneSize,
+        };
+    });
+}
+
+function simulateSeries(seed: number, len = 12): number[] {
+    let s = seed;
+    const out = [0];
+    for (let i = 1; i < len; i++) {
+        s = (s * 1103515245 + 12345) & 0x7fffffff;
+        const trend = seed % 3 === 0 ? -2 : seed % 3 === 1 ? 1.1 : 0;
+        const noise = (s / 0x7fffffff - 0.5) * 4;
+        const prev = out[i - 1] ?? 0;
+        out.push(+(prev + trend + noise).toFixed(1));
+    }
+    return out;
+}
+
+interface Point {
+    id: string;
+    /** Longitude (EPSG:4326) */
+    lon: number;
+    /** Latitude (EPSG:4326) */
+    lat: number;
+    color: string;
+    series: number[];
+}
+
 const PRODUCT_CENTERS: Record<string, [number, number]> = {
     'pohang-q4': [129.37, 36.02],
     'gyeongju-sbas': [129.22, 35.85],
@@ -100,6 +165,7 @@ const PRODUCT_CENTERS: Record<string, [number, number]> = {
     ulleung: [130.9, 37.49],
 };
 
+/** 산출물 미리보기 raster 가 깔리는 lon/lat 사각형. 중심 ± 약 25/18km 패치. */
 function productExtent(productId: string): [number, number, number, number] {
     const [lon, lat] = PRODUCT_CENTERS[productId] ?? [129.37, 36.02];
     const dLon = 0.25;
@@ -116,6 +182,7 @@ const LAYER_META: Record<Layer, { unit: string; label: string }> = {
     wrapped_phase: { unit: 'rad', label: 'wrapped_phase' },
 };
 
+/** 레이어 전환 시 범위 입력을 단위에 맞춰 자동 재설정한다. */
 const LAYER_DEFAULT_RANGE: Record<Layer, [number, number]> = {
     mean_velocity: [-30, 30],
     coherence: [0, 1],
@@ -131,16 +198,16 @@ const COLORMAP_GRADIENTS: Record<Colormap, string> = {
     magma: 'linear-gradient(to right, #000004, #51127c, #b73779, #fc8961, #fcfdbf)',
 };
 
-function hex(s: string): [number, number, number] {
-    const v = parseInt(s.slice(1), 16);
-    return [(v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff];
-}
-
 const COLORMAP_STOPS: Record<Colormap, Array<[number, number, number]>> = {
     RdBu: [hex('#2563eb'), hex('#60a5fa'), hex('#f1f5f9'), hex('#fb923c'), hex('#dc2626')],
     viridis: [hex('#440154'), hex('#3b528b'), hex('#21918c'), hex('#5ec962'), hex('#fde725')],
     magma: [hex('#000004'), hex('#51127c'), hex('#b73779'), hex('#fc8961'), hex('#fcfdbf')],
 };
+
+function hex(s: string): [number, number, number] {
+    const v = parseInt(s.slice(1), 16);
+    return [(v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff];
+}
 
 function sampleColormap(cm: Colormap, t: number): [number, number, number] {
     const stops = COLORMAP_STOPS[cm];
@@ -157,6 +224,8 @@ function sampleColormap(cm: Colormap, t: number): [number, number, number] {
     ];
 }
 
+/** 산출물 미리보기 레이어를 합성한다. 실제 InSAR 산출물 대신 시각적 데모용 패턴을 그린다.
+ *  레이어/컬러맵/범위 변화에 반응해서 지도 위 오버레이 외관이 즉각 변하도록 의도. */
 function buildInsarRaster(opts: {
     productId: string;
     layer: Layer;
@@ -230,75 +299,13 @@ function buildInsarRaster(opts: {
     return cv.toDataURL('image/png');
 }
 
-const POINT_COLORS = ['#dc2626', '#2563eb', '#10b981', '#f59e0b', '#a855f7', '#06b6d4', '#f472b6', '#84cc16'];
-const TIMESERIES_DATES = [
-    '25-10', '25-11', '25-12', '26-01', '26-02', '26-03',
-    '26-04', '26-05', '26-06', '26-07', '26-08', '26-09',
-];
-
-interface Point {
-    id: string;
-    lon: number;
-    lat: number;
-    color: string;
-    series: number[];
-}
-
-function simulateSeries(seed: number, len = 12): number[] {
-    let s = seed;
-    const out = [0];
-    for (let i = 1; i < len; i++) {
-        s = (s * 1103515245 + 12345) & 0x7fffffff;
-        const trend = seed % 3 === 0 ? -2 : seed % 3 === 1 ? 1.1 : 0;
-        const noise = (s / 0x7fffffff - 0.5) * 4;
-        const prev = out[i - 1] ?? 0;
-        out.push(+(prev + trend + noise).toFixed(1));
-    }
-    return out;
-}
-
-interface SceneItem {
-    id: string;
-    date: string;
-    role: 'master' | 'slave';
-    polarization: string;
-    size: string;
-}
-
-function generateScenes(product: InsarProduct): SceneItem[] {
-    const [startStr] = product.range.split(' ~ ');
-    const start = startStr.length >= 10 ? new Date(startStr) : new Date(`${startStr}-01`);
-    const stepDays = 12;
-    const polarization = 'VV+VH';
-    const sceneSize = product.type === 'PSInSAR' || product.type === 'SBAS' ? '4.1 GB' : '1.7 GB';
-    const missionPrefix = product.mission.includes('S1C') ? 'S1C' : 'S1A';
-    const productSuffix = product.type === 'DInSAR' ? 'GRDH_1SDV' : 'SLC__1SDV';
-    return Array.from({ length: product.scenes }).map((_, i) => {
-        const d = new Date(start);
-        d.setDate(d.getDate() + i * stepDays);
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        const id = `${missionPrefix}_IW_${productSuffix}_${yyyy}${mm}${dd}T211515_${yyyy}${mm}${dd}T211544_0${(i % 9) + 1}A123_2B${(i % 16).toString(16).padStart(2, '0').toUpperCase()}`;
-        return {
-            id,
-            date: `${yyyy}-${mm}-${dd}`,
-            role: i === 0 ? 'master' : 'slave',
-            polarization,
-            size: sceneSize,
-        };
-    });
-}
-
-const typeBadge = (t: InsarProduct['type']) =>
-    t === 'DInSAR' ? 'badge--info' : t === 'SBAS' ? 'badge--warning' : 'badge--brand2';
-
 // ────────────────────────────────────────────────────────────────────────────
-// 페이지
+// 메인 컴포넌트
 // ────────────────────────────────────────────────────────────────────────────
 
 export default function InsarResultsPage() {
     const toast = useToast();
+
     const [selected, setSelected] = useState('pohang-q4');
     const [typeFilter, setTypeFilter] = useState<'전체' | InsarProduct['type']>('전체');
     const [layer, setLayer] = useState<Layer>('mean_velocity');
@@ -317,7 +324,61 @@ export default function InsarResultsPage() {
     const product = useMemo(() => PRODUCTS.find((p) => p.id === selected) ?? PRODUCTS[0]!, [selected]);
     const filteredProducts = PRODUCTS.filter((p) => typeFilter === '전체' || p.type === typeFilter);
 
-    // 점 추가/삭제
+    const resultsPoints = useMemo<MapPoint[]>(
+        () =>
+            points.map((p) => ({
+                id: p.id,
+                coord: [p.lon, p.lat] as [number, number],
+                color: p.color,
+                label: p.id,
+                onClick: () => removePoint(p.id),
+            })),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [points],
+    );
+
+    const rasterSrc = useMemo(() => {
+        return buildInsarRaster({
+            productId: product.id,
+            layer,
+            colormap,
+            rangeMin,
+            rangeMax,
+        });
+    }, [product.id, layer, colormap, rangeMin, rangeMax]);
+
+    const mapRaster = useMemo<MapRasterOverlay | null>(() => {
+        if (!rasterSrc) return null;
+        return {
+            src: rasterSrc,
+            extent: productExtent(product.id),
+            opacity: opacity / 100,
+        };
+    }, [rasterSrc, product.id, opacity]);
+
+    // 산출물이 바뀌면 지도 뷰를 그 산출물에 맞춰 zoom-fit.
+    useEffect(() => {
+        setFitKey(`fit-product-${product.id}-${Date.now()}`);
+    }, [product.id]);
+
+    /** 지도 우상단 범례 외관 — 현재 layer/colormap/range 와 동기화. */
+    const mapLegend = useMemo<MapVelocityLegend>(() => {
+        const meta = LAYER_META[layer];
+        const fmt = (n: number) =>
+            Number.isInteger(n) ? n.toString() : n.toFixed(Math.abs(n) < 1 ? 2 : 1);
+        const lo = Math.min(rangeMin, rangeMax);
+        const hi = Math.max(rangeMin, rangeMax);
+        const mid = (lo + hi) / 2;
+        return {
+            title: `${meta.label} (${meta.unit})`,
+            gradient: COLORMAP_GRADIENTS[colormap],
+            min: fmt(lo),
+            mid: fmt(mid),
+            max: hi >= 0 ? `+${fmt(hi)}` : fmt(hi),
+        };
+    }, [layer, colormap, rangeMin, rangeMax]);
+
+    // ── 점 시계열 ──────────────────────────────────────────────────────
     const nextPointId = () => {
         const used = new Set(points.map((p) => p.id));
         for (const L of 'ABCDEFGH') if (!used.has(L)) return L;
@@ -361,51 +422,6 @@ export default function InsarResultsPage() {
         toast(`${points.length}개 점 시계열 CSV로 내보냄`, { tone: 'success' });
     };
 
-    // 지도 raster + legend
-    const rasterSrc = useMemo(
-        () => buildInsarRaster({ productId: product.id, layer, colormap, rangeMin, rangeMax }),
-        [product.id, layer, colormap, rangeMin, rangeMax],
-    );
-    const mapRaster = useMemo<MapRasterOverlay | null>(() => {
-        if (!rasterSrc) return null;
-        return { src: rasterSrc, extent: productExtent(product.id), opacity: opacity / 100 };
-    }, [rasterSrc, product.id, opacity]);
-
-    useEffect(() => {
-        setFitKey(`fit-product-${product.id}-${Date.now()}`);
-    }, [product.id]);
-
-    const mapLegend = useMemo<MapVelocityLegend>(() => {
-        const meta = LAYER_META[layer];
-        const fmt = (n: number) =>
-            Number.isInteger(n) ? n.toString() : n.toFixed(Math.abs(n) < 1 ? 2 : 1);
-        const lo = Math.min(rangeMin, rangeMax);
-        const hi = Math.max(rangeMin, rangeMax);
-        const mid = (lo + hi) / 2;
-        return {
-            title: `${meta.label} (${meta.unit})`,
-            gradient: COLORMAP_GRADIENTS[colormap],
-            min: fmt(lo),
-            mid: fmt(mid),
-            max: hi >= 0 ? `+${fmt(hi)}` : fmt(hi),
-        };
-    }, [layer, colormap, rangeMin, rangeMax]);
-
-    const mapPoints = useMemo<MapPoint[]>(
-        () =>
-            points.map((p) => ({
-                id: p.id,
-                coord: [p.lon, p.lat] as [number, number],
-                color: p.color,
-                label: p.id,
-                onClick: () => removePoint(p.id),
-            })),
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [points],
-    );
-
-    const initialCenter: [number, number] = PRODUCT_CENTERS[product.id] ?? [129.37, 36.02];
-
     return (
         <div className="col" style={{ flex: 1, minHeight: 0 }}>
             <div className="split" style={{ flex: 1 }}>
@@ -441,23 +457,27 @@ export default function InsarResultsPage() {
                         onRangeMaxChange={setRangeMax}
                         currentProduct={product}
                         onShowScenes={() => setShowScenes(true)}
-                        onDownload={() => toast(`${product.name} 다운로드 시작`, { tone: 'success' })}
+                        onDownload={() =>
+                            toast(`${product.name} 다운로드 시작`, { tone: 'success' })
+                        }
                         points={points}
                         onClearPoints={clearPoints}
                         onRemovePoint={removePoint}
                     />
                 </aside>
+
                 <div className="split__main">
                     <div style={{ flex: 1, position: 'relative', minHeight: 200, isolation: 'isolate' }}>
                         <MapCanvas
-                            center={initialCenter}
+                            center={PRODUCT_CENTERS[product.id] ?? [129.37, 36.02]}
                             zoom={10}
-                            points={mapPoints}
+                            points={resultsPoints}
                             raster={mapRaster}
                             onMapClick={(coord) => addPointAt(coord[0], coord[1])}
                             showLegend
                             legend="velocity"
                             legendOptions={mapLegend}
+                            tools={[]}
                             fitKey={fitKey}
                         >
                             <div
@@ -483,6 +503,7 @@ export default function InsarResultsPage() {
                             </div>
                         </MapCanvas>
                     </div>
+
                     <div
                         style={{
                             height: 260,
@@ -499,13 +520,15 @@ export default function InsarResultsPage() {
                     </div>
                 </div>
             </div>
-            {showScenes ? <ScenesModal product={product} onClose={() => setShowScenes(false)} /> : null}
+            {showScenes ? (
+                <ScenesModal product={product} onClose={() => setShowScenes(false)} />
+            ) : null}
         </div>
     );
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// 사이드바
+// 결과 — 사이드바
 // ────────────────────────────────────────────────────────────────────────────
 
 interface ResultsSidebarProps {
@@ -591,7 +614,9 @@ function ResultsSidebar({
                                     borderBottom: '1px solid var(--border-subtle)',
                                     background: selected === p.id ? 'var(--accent-soft)' : undefined,
                                     borderLeft:
-                                        selected === p.id ? '3px solid var(--accent)' : '3px solid transparent',
+                                        selected === p.id
+                                            ? '3px solid var(--accent)'
+                                            : '3px solid transparent',
                                     cursor: 'pointer',
                                 }}
                             >
@@ -609,7 +634,9 @@ function ResultsSidebar({
                                     <span className="faint">·</span>
                                     <span className="mono tabular">{p.scenes}</span>
                                     <span className="faint">scenes</span>
-                                    <span className="faint" style={{ marginLeft: 'auto' }}>{p.size}</span>
+                                    <span className="faint" style={{ marginLeft: 'auto' }}>
+                                        {p.size}
+                                    </span>
                                 </div>
                             </div>
                         ))
@@ -630,7 +657,9 @@ function ResultsSidebar({
                                             padding: '7px 10px',
                                             borderRadius: 5,
                                             background: on ? 'var(--accent-soft)' : 'transparent',
-                                            border: on ? '1px solid var(--accent-border)' : '1px solid transparent',
+                                            border: on
+                                                ? '1px solid var(--accent-border)'
+                                                : '1px solid transparent',
                                             cursor: 'pointer',
                                         }}
                                     >
@@ -640,7 +669,9 @@ function ResultsSidebar({
                                                     width: 7,
                                                     height: 7,
                                                     borderRadius: 50,
-                                                    background: on ? 'var(--accent)' : 'var(--text-tertiary)',
+                                                    background: on
+                                                        ? 'var(--accent)'
+                                                        : 'var(--text-tertiary)',
                                                 }}
                                             />
                                             <span
@@ -723,7 +754,9 @@ function ResultsSidebar({
 
                 <Section title={`선택된 점 (${points.length}/8)`}>
                     {points.length === 0 ? (
-                        <div className="faint" style={{ fontSize: 11.5 }}>지도 클릭하여 시계열 점 추가</div>
+                        <div className="faint" style={{ fontSize: 11.5 }}>
+                            지도 클릭하여 시계열 점 추가
+                        </div>
                     ) : (
                         <div className="col gap-2">
                             {points.map((p) => (
@@ -787,7 +820,12 @@ function ResultsSidebar({
                     {currentProduct.name} · {currentProduct.scenes} scenes · LOS inc=39.2°
                 </div>
                 <div className="row gap-2">
-                    <button type="button" className="btn btn--sm" onClick={onShowScenes} style={{ flex: 1 }}>
+                    <button
+                        type="button"
+                        className="btn btn--sm"
+                        onClick={onShowScenes}
+                        style={{ flex: 1 }}
+                    >
                         원본 scene
                     </button>
                     <button
@@ -805,7 +843,7 @@ function ResultsSidebar({
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// 하단 시계열 패널
+// 결과 — 하단 시계열 패널
 // ────────────────────────────────────────────────────────────────────────────
 
 function ResultsBottomPanel({ points, onExport }: { points: Point[]; onExport: () => void }) {
@@ -852,6 +890,10 @@ function ResultsBottomPanel({ points, onExport }: { points: Point[]; onExport: (
         </>
     );
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// 시계열 차트
+// ────────────────────────────────────────────────────────────────────────────
 
 function TimeseriesChart({ points }: { points: Point[] }) {
     const data = TIMESERIES_DATES.map((date, i) => {
@@ -918,7 +960,7 @@ function TimeseriesChart({ points }: { points: Point[] }) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// 원본 scene 모달
+// 결과 — 원본 scene 모달
 // ────────────────────────────────────────────────────────────────────────────
 
 function ScenesModal({ product, onClose }: { product: InsarProduct; onClose: () => void }) {
@@ -975,18 +1017,5 @@ function ScenesModal({ product, onClose }: { product: InsarProduct; onClose: () 
                 </table>
             </div>
         </Modal>
-    );
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// 공통
-// ────────────────────────────────────────────────────────────────────────────
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-    return (
-        <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-subtle)' }}>
-            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>{title}</div>
-            {children}
-        </div>
     );
 }

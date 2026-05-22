@@ -20,7 +20,7 @@ export interface RouteDef {
 export const userRoutes: RouteDef[] = [
     { href: '/plan/sar/user/search', label: '검색', icon: Search },
     { href: '/plan/sar/user/downloads', label: '다운로드', icon: Download },
-    { href: '/plan/sar/user/insar', label: 'InSAR 분석 요청', icon: Activity },
+    { href: '/plan/sar/user/insar/request', label: '분석 요청', icon: Activity },
     { href: '/plan/sar/user/insar/results', label: '분석 결과', icon: LayoutDashboard },
     { href: '/plan/sar/user/aois', label: 'AOI 관리', icon: Map },
     { href: '/plan/sar/user/notifications', label: '알림', icon: Bell },

@@ -31,6 +31,15 @@ import { Icon, type IconName } from './Icon';
 export type Basemap = 'osm' | 'satellite';
 
 const SATELLITE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+// 위성 영상 위에 얹는 지명/경계 라벨. 위성 모드를 하이브리드처럼 보이게 한다.
+// CARTO `dark_only_labels`: 흰 글자 + 검정 헤일로라 위성 위에서 가독성이 좋고,
+// 토큰 없이 z19+까지 동작한다. (ESRI Reference 는 z10~12 부근부터 라벨이 빠진다.)
+const SATELLITE_LABELS_URLS = [
+    'https://a.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}.png',
+    'https://b.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}.png',
+    'https://c.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}.png',
+    'https://d.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}.png',
+];
 
 export type MapTool = 'polygon' | 'bbox' | 'upload';
 
@@ -154,6 +163,19 @@ function makeBasemapSource(b: Basemap) {
     return new OSM({ crossOrigin: 'anonymous', attributions: [] });
 }
 
+function makeSatelliteLabelsLayer() {
+    return new TileLayer({
+        source: new XYZ({
+            urls: SATELLITE_LABELS_URLS,
+            crossOrigin: 'anonymous',
+            maxZoom: 20,
+            attributions: [],
+        }),
+        preload: 0,
+        useInterimTilesOnError: false,
+    });
+}
+
 function ringToPolygon(coords: Array<[number, number]>) {
     const ring = coords.map(([lon, lat]) => fromLonLat([lon, lat]));
     // Ensure ring is closed
@@ -234,6 +256,7 @@ export function MapCanvas({
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<Map | null>(null);
     const baseLayerRef = useRef<TileLayer | null>(null);
+    const labelsLayerRef = useRef<TileLayer | null>(null);
     const [basemap, setBasemap] = useState<Basemap>(initialBasemap);
     const [legendOpen, setLegendOpen] = useState(true);
     const footprintSourceRef = useRef<VectorSource | null>(null);
@@ -273,12 +296,17 @@ export function MapCanvas({
         });
         baseLayerRef.current = baseLayer;
 
+        // 위성 모드일 때만 지명/경계 라벨을 위성 영상 바로 위에 얹는다.
+        const labelsLayer = initialBasemap === 'satellite' ? makeSatelliteLabelsLayer() : null;
+        labelsLayerRef.current = labelsLayer;
+
         const map = new Map({
             target: containerRef.current,
             controls: [], // we render our own zoom buttons; no default attribution
             interactions: interactive ? undefined : [], // static mini-maps disable all interactions
             layers: [
                 baseLayer,
+                ...(labelsLayer ? [labelsLayer] : []),
                 new VectorLayer({
                     source: footprintSource,
                     style: (feature) =>
@@ -516,6 +544,22 @@ export function MapCanvas({
             layers.insertAt(0, newLayer);
         }
         baseLayerRef.current = newLayer;
+
+        // 위성 모드에서만 라벨 오버레이를 띄운다. base 레이어 바로 위에 끼워
+        // raster/footprint/AOI 보다 아래에 두어 벡터 요소가 가려지지 않게 한다.
+        const oldLabels = labelsLayerRef.current;
+        if (basemap === 'satellite') {
+            if (!oldLabels) {
+                const labelsLayer = makeSatelliteLabelsLayer();
+                const baseIdx = layers.getArray().indexOf(newLayer);
+                layers.insertAt(baseIdx + 1, labelsLayer);
+                labelsLayerRef.current = labelsLayer;
+            }
+        } else if (oldLabels) {
+            map.removeLayer(oldLabels);
+            oldLabels.dispose();
+            labelsLayerRef.current = null;
+        }
     }, [basemap]);
 
     // AOI 편집 인터랙션 (Modify + Translate). 콜백이 있을 때만 부착.
