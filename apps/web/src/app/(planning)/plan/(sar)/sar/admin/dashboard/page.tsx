@@ -29,10 +29,9 @@ interface QuickAction {
 }
 
 const QUICK_ACTIONS: QuickAction[] = [
-    { icon: 'shield', label: '승인 대기', count: 7, tone: 'warning', target: '/plan/sar/admin/approvals' },
     { icon: 'refresh', label: 'Sync 실패 AOI', count: 3, tone: 'danger', target: '/plan/sar/admin/sync-monitor' },
     { icon: 'users', label: '신규 가입', count: 2, tone: 'accent', target: '/plan/sar/admin/users' },
-    { icon: 'activity', label: '실패한 다운로드', count: 5, tone: 'danger', target: '/plan/sar/admin/audit-logs' },
+    { icon: 'activity', label: '실패한 다운로드', count: 5, tone: 'danger', target: '/plan/sar/admin/failed-downloads' },
 ];
 
 const EVENTS: [string, string, string, string][] = [

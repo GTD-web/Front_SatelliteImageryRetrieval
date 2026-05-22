@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 
-import { HifiPrefsProvider, Icon, ToastProvider, useToast } from '@/_ui/hifi';
+import { HifiPrefsProvider, Icon, Modal, ToastProvider, useToast } from '@/_ui/hifi';
 
 import { AuthHeroPane } from '../_hero';
 
@@ -25,6 +25,7 @@ function LoginView() {
     const [pw, setPw] = useState('password123');
     const [loading, setLoading] = useState(false);
     const [clientIp, setClientIp] = useState<string | null>(null);
+    const [forgotOpen, setForgotOpen] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -85,7 +86,7 @@ function LoginView() {
                                 <a
                                     className="faint"
                                     style={{ fontSize: 11.5, cursor: 'pointer' }}
-                                    onClick={() => toast('비밀번호 찾기 메일 전송됨', { tone: 'success' })}
+                                    onClick={() => setForgotOpen(true)}
                                 >
                                     찾기
                                 </a>
@@ -147,6 +148,88 @@ function LoginView() {
                     </div>
                 </form>
             </div>
+            {forgotOpen ? (
+                <ForgotPasswordModal
+                    initialEmail={email}
+                    onClose={() => setForgotOpen(false)}
+                    onSent={(addr) => {
+                        toast(`${addr} 으로 비밀번호 재설정 메일을 전송했습니다`, {
+                            tone: 'success',
+                            title: '전송 완료',
+                        });
+                        setForgotOpen(false);
+                    }}
+                />
+            ) : null}
         </div>
+    );
+}
+
+interface ForgotPasswordModalProps {
+    initialEmail: string;
+    onClose: () => void;
+    onSent: (email: string) => void;
+}
+
+function ForgotPasswordModal({ initialEmail, onClose, onSent }: ForgotPasswordModalProps) {
+    const toast = useToast();
+    const [addr, setAddr] = useState(initialEmail);
+    const [sending, setSending] = useState(false);
+
+    const send = (e: FormEvent) => {
+        e.preventDefault();
+        const trimmed = addr.trim();
+        if (!trimmed || !/^\S+@\S+\.\S+$/.test(trimmed)) {
+            toast('올바른 이메일을 입력하세요', { tone: 'warning' });
+            return;
+        }
+        setSending(true);
+        setTimeout(() => {
+            setSending(false);
+            onSent(trimmed);
+        }, 600);
+    };
+
+    return (
+        <Modal
+            title="비밀번호 찾기"
+            sub="가입하신 이메일로 재설정 링크를 보내드립니다"
+            onClose={onClose}
+            footer={
+                <>
+                    <button type="button" className="btn" onClick={onClose} disabled={sending}>
+                        취소
+                    </button>
+                    <button
+                        type="button"
+                        className="btn btn--primary"
+                        onClick={send}
+                        disabled={sending}
+                    >
+                        {sending ? '전송 중…' : '전송하기'}
+                    </button>
+                </>
+            }
+        >
+            <form onSubmit={send} className="col gap-3">
+                <div>
+                    <label className="field-label">이메일</label>
+                    <input
+                        className="input"
+                        type="email"
+                        placeholder="you@ksit.re.kr"
+                        value={addr}
+                        onChange={(e) => setAddr(e.target.value)}
+                        autoFocus
+                        autoComplete="email"
+                    />
+                </div>
+                <div className="faint" style={{ fontSize: 12, lineHeight: 1.55 }}>
+                    이메일이 사내 계정으로 등록되어 있어야 합니다. 메일이 도착하지 않으면 관리자에게 문의하세요.
+                </div>
+                {/* 폼 enter 키 제출용 hidden submit */}
+                <button type="submit" style={{ display: 'none' }} aria-hidden="true" tabIndex={-1} />
+            </form>
+        </Modal>
     );
 }

@@ -1,10 +1,11 @@
 'use client';
 
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { useHifiCart } from '@/_shared/contexts/HifiCartContext';
 
+import { useConfirm } from './ConfirmProvider';
 import { Icon } from './Icon';
 import { Quicklook } from './Quicklook';
 import { useToast } from './ToastProvider';
@@ -72,6 +73,27 @@ function CartOverlayPanel() {
     const { open, hide } = useCartOverlay();
     const { items, remove, clear, totalGb, needCount } = useHifiCart();
     const toast = useToast();
+    const confirm = useConfirm();
+    const router = useRouter();
+
+    const submit = async () => {
+        if (items.length === 0) return;
+        const count = items.length;
+        const gb = totalGb;
+        hide();
+        clear();
+        toast(`${count}건 (${gb.toFixed(1)} GB) 다운로드 큐에 추가됨`, {
+            tone: 'success',
+            title: '요청 완료',
+        });
+        const go = await confirm({
+            title: '다운로드 요청이 완료되었습니다',
+            body: '다운로드 페이지로 이동해서 진행 상태를 확인하시겠습니까?',
+            confirmLabel: '네, 이동',
+            cancelLabel: '아니요',
+        });
+        if (go) router.push('/plan/sar/user/downloads');
+    };
 
     return (
         <>
@@ -231,9 +253,9 @@ function CartOverlayPanel() {
                             className="col gap-2"
                             style={{ padding: '12px 14px', borderTop: '1px solid var(--border-subtle)' }}
                         >
-                            <Link href="/plan/sar/user/cart" className="btn btn--primary" onClick={hide}>
+                            <button type="button" className="btn btn--primary" onClick={submit}>
                                 <Icon name="download" size={13} /> 다운로드 요청
-                            </Link>
+                            </button>
                         </div>
                     </>
                 )}

@@ -295,12 +295,7 @@ export default function DownloadsPage() {
 
             <div className="col gap-4" style={{ flex: 1, overflow: 'auto', padding: 16 }}>
                 {showSlc ? (
-                    <SlcSection
-                        jobs={slcJobs}
-                        runningCount={jobs.filter((j) => j.productKind === 'SLC' && j.status === 'running').length}
-                        onDownload={downloadFromNas}
-                        onRetry={retry}
-                    />
+                    <SlcSection jobs={slcJobs} onDownload={downloadFromNas} onRetry={retry} />
                 ) : null}
 
                 {showS3 ? (
@@ -313,12 +308,11 @@ export default function DownloadsPage() {
 
 interface SlcProps {
     jobs: Job[];
-    runningCount: number;
     onDownload: (j: Job) => void;
     onRetry: (id: string) => void;
 }
 
-function SlcSection({ jobs, runningCount, onDownload, onRetry }: SlcProps) {
+function SlcSection({ jobs, onDownload, onRetry }: SlcProps) {
     return (
         <div className="card">
             <SectionHeader title="SLC" count={jobs.length} />
@@ -380,7 +374,7 @@ function SlcSection({ jobs, runningCount, onDownload, onRetry }: SlcProps) {
                                         </div>
                                     ) : j.status === 'queued' ? (
                                         <span className="faint" style={{ fontSize: 12 }}>
-                                            앞에 {Math.max(0, runningCount)}건
+                                            대기
                                         </span>
                                     ) : (
                                         <div className="row gap-2">

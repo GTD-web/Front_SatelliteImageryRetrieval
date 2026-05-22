@@ -48,12 +48,6 @@ const ADMIN_ITEMS: NavItem[] = [
     { label: '검색', href: `${base}/admin/search`, icon: 'search', match: (p) => p.includes('/admin/search') },
     { label: '사용자', href: `${base}/admin/users`, icon: 'users', match: (p) => p.includes('/admin/users') },
     {
-        label: '승인 큐',
-        href: `${base}/admin/approvals`,
-        icon: 'shield',
-        match: (p) => p.includes('/admin/approvals'),
-    },
-    {
         label: '크롤 AOI',
         href: `${base}/admin/crawl-targets`,
         icon: 'satellite',

@@ -1,7 +1,6 @@
 import {
     Activity,
     Bell,
-    CheckSquare,
     Download,
     LayoutDashboard,
     Map,
@@ -28,7 +27,6 @@ export const userRoutes: RouteDef[] = [
 export const adminRoutes: RouteDef[] = [
     { href: '/plan/sar/admin/dashboard', label: '대시보드', icon: LayoutDashboard },
     { href: '/plan/sar/admin/users', label: '사용자', icon: Users },
-    { href: '/plan/sar/admin/approvals', label: '승인', icon: CheckSquare },
     { href: '/plan/sar/admin/crawl-targets', label: 'AOI', icon: Map },
     { href: '/plan/sar/admin/sync-monitor', label: 'Sync', icon: Activity },
     { href: '/plan/sar/admin/audit-logs', label: '감사', icon: ScrollText },
