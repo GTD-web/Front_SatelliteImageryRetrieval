@@ -29,7 +29,19 @@ const USER_ITEMS: NavItem[] = [
         icon: 'download',
         match: (p) => p.includes('/user/downloads'),
     },
-    { label: 'InSAR', href: `${base}/user/insar`, icon: 'activity', match: (p) => p.includes('/user/insar') },
+    {
+        label: 'InSAR 분석 요청',
+        href: `${base}/user/insar`,
+        icon: 'activity',
+        // /user/insar 정확 매칭 (results 는 분리). /insar/results 는 endsWith 로 배제.
+        match: (p) => p.includes('/user/insar') && !p.includes('/user/insar/results'),
+    },
+    {
+        label: '분석 결과',
+        href: `${base}/user/insar/results`,
+        icon: 'chart',
+        match: (p) => p.includes('/user/insar/results'),
+    },
     {
         label: 'AOI 관리',
         href: `${base}/user/aois`,
