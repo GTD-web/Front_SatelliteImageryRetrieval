@@ -29,7 +29,18 @@ const USER_ITEMS: NavItem[] = [
         icon: 'download',
         match: (p) => p.includes('/user/downloads'),
     },
-    { label: 'InSAR', href: `${base}/user/insar`, icon: 'activity', match: (p) => p.includes('/user/insar') },
+    {
+        label: '분석 요청',
+        href: `${base}/user/insar/request`,
+        icon: 'activity',
+        match: (p) => p.includes('/user/insar/request'),
+    },
+    {
+        label: '분석 결과',
+        href: `${base}/user/insar/results`,
+        icon: 'layers',
+        match: (p) => p.includes('/user/insar/results'),
+    },
     {
         label: 'AOI 관리',
         href: `${base}/user/aois`,
@@ -47,12 +58,6 @@ const ADMIN_ITEMS: NavItem[] = [
     },
     { label: '검색', href: `${base}/admin/search`, icon: 'search', match: (p) => p.includes('/admin/search') },
     { label: '사용자', href: `${base}/admin/users`, icon: 'users', match: (p) => p.includes('/admin/users') },
-    {
-        label: '승인 큐',
-        href: `${base}/admin/approvals`,
-        icon: 'shield',
-        match: (p) => p.includes('/admin/approvals'),
-    },
     {
         label: '크롤 AOI',
         href: `${base}/admin/crawl-targets`,

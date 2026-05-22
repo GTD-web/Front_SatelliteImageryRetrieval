@@ -1,7 +1,6 @@
 import {
     Activity,
     Bell,
-    CheckSquare,
     Download,
     LayoutDashboard,
     Map,
@@ -21,6 +20,8 @@ export interface RouteDef {
 export const userRoutes: RouteDef[] = [
     { href: '/plan/sar/user/search', label: '검색', icon: Search },
     { href: '/plan/sar/user/downloads', label: '다운로드', icon: Download },
+    { href: '/plan/sar/user/insar/request', label: '분석 요청', icon: Activity },
+    { href: '/plan/sar/user/insar/results', label: '분석 결과', icon: LayoutDashboard },
     { href: '/plan/sar/user/aois', label: 'AOI 관리', icon: Map },
     { href: '/plan/sar/user/notifications', label: '알림', icon: Bell },
 ];
@@ -28,7 +29,6 @@ export const userRoutes: RouteDef[] = [
 export const adminRoutes: RouteDef[] = [
     { href: '/plan/sar/admin/dashboard', label: '대시보드', icon: LayoutDashboard },
     { href: '/plan/sar/admin/users', label: '사용자', icon: Users },
-    { href: '/plan/sar/admin/approvals', label: '승인', icon: CheckSquare },
     { href: '/plan/sar/admin/crawl-targets', label: 'AOI', icon: Map },
     { href: '/plan/sar/admin/sync-monitor', label: 'Sync', icon: Activity },
     { href: '/plan/sar/admin/audit-logs', label: '감사', icon: ScrollText },

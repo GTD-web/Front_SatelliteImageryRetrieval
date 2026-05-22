@@ -26,7 +26,8 @@ export default function AoisPage() {
     );
 
     const goApply = (a: SavedAoi, target: 'search' | 'insar') => {
-        const path = target === 'search' ? '/plan/sar/user/search' : '/plan/sar/user/insar';
+        const path =
+            target === 'search' ? '/plan/sar/user/search' : '/plan/sar/user/insar/request';
         router.push(`${path}?aoi=${encodeURIComponent(a.id)}`);
     };
 

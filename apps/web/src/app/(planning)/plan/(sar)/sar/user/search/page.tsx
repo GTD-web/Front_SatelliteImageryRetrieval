@@ -35,6 +35,35 @@ import { RequestTimelinePanel } from '../../_components/SceneTimelinePanel';
 type ProductMode = 'slc' | 'others';
 type AoiField = 'nwLat' | 'nwLon' | 'seLat' | 'seLon';
 
+/** 검색 가능한 위성 플랫폼. 'S1' 은 정식 지원, 'S2' 는 광학 필터 UI 만 목업, 나머지는 준비 중. */
+type Platform = 'S1' | 'S2' | 'umbra' | 'capella' | 'kompsat';
+
+interface PlatformDef {
+    value: Platform;
+    label: string;
+    kind: 'SAR' | 'EO';
+    ready: boolean;
+    note?: string;
+}
+
+const PLATFORMS: PlatformDef[] = [
+    { value: 'S1', label: 'Sentinel-1 (SAR)', kind: 'SAR', ready: true },
+    { value: 'S2', label: 'Sentinel-2 (광학)', kind: 'EO', ready: true, note: '광학 필터 미리보기' },
+    { value: 'umbra', label: 'Umbra (SAR)', kind: 'SAR', ready: false, note: '연동 준비 중' },
+    { value: 'capella', label: 'Capella (SAR)', kind: 'SAR', ready: false, note: '연동 준비 중' },
+    { value: 'kompsat', label: 'KOMPSAT (광학/SAR)', kind: 'EO', ready: false, note: '연동 준비 중' },
+];
+
+interface S2Filters {
+    level: 'L1C' | 'L2A';
+    cloudMax: number;
+    bands: string[];
+}
+
+function buildDefaultS2Filters(): S2Filters {
+    return { level: 'L2A', cloudMax: 30, bands: ['TCI'] };
+}
+
 interface Filters {
     s1a: boolean;
     s1c: boolean;
@@ -64,20 +93,37 @@ function presetRange(preset: '1주' | '1개월' | '3개월' | '1년'): [Date, Da
     return [start, end];
 }
 
-function sceneMatches(s: HifiScene, f: Filters): boolean {
-    if (s.mission === 'S1A' && !f.s1a) return false;
-    if (s.mission === 'S1C' && !f.s1c) return false;
-    if (f.productMode === 'slc') {
-        if (s.product !== 'SLC') return false;
-    } else {
-        if (s.product === 'SLC') return false;
-        if (s.product === 'GRD' && !f.grd) return false;
-        if (s.product === 'OCN' && !f.ocn) return false;
-        if (s.product === 'RAW' && !f.raw) return false;
+/**
+ * Platform 별로 다른 분기 — S1 은 기존 `Filters`, S2 는 별도 `S2Filters` 로 평가.
+ * 그 외 플랫폼(Umbra/Capella/KOMPSAT)은 mock 카탈로그가 없으므로 항상 빈 결과.
+ */
+function sceneMatches(s: HifiScene, f: Filters, platform: Platform, s2: S2Filters): boolean {
+    if (platform === 'S1') {
+        if (s.mission !== 'S1A' && s.mission !== 'S1C') return false;
+        if (s.mission === 'S1A' && !f.s1a) return false;
+        if (s.mission === 'S1C' && !f.s1c) return false;
+        if (f.productMode === 'slc') {
+            if (s.product !== 'SLC') return false;
+        } else {
+            if (s.product === 'SLC') return false;
+            if (s.product === 'GRD' && !f.grd) return false;
+            if (s.product === 'OCN' && !f.ocn) return false;
+            if (s.product === 'RAW' && !f.raw) return false;
+        }
+        if (f.pol.length > 0 && (!s.pol || !f.pol.includes(s.pol))) return false;
+        if (f.haveOnly && !s.have) return false;
+        return true;
     }
-    if (f.pol.length > 0 && (!s.pol || !f.pol.includes(s.pol))) return false;
-    if (f.haveOnly && !s.have) return false;
-    return true;
+    if (platform === 'S2') {
+        // Sentinel-2 광학 — mission S2A/S2B/S2C, product L1C/L2A, cloudCover 검사.
+        if (s.mission !== 'S2A' && s.mission !== 'S2B' && s.mission !== 'S2C') return false;
+        if (s.product !== s2.level) return false;
+        if (typeof s.cloudCover === 'number' && s.cloudCover > s2.cloudMax) return false;
+        if (f.haveOnly && !s.have) return false;
+        return true;
+    }
+    // umbra / capella / kompsat — 연동 미지원
+    return false;
 }
 
 function buildDefaultFilters(): Filters {
@@ -138,8 +184,10 @@ function SearchPageInner() {
     const [activeTool, setActiveTool] = useState<MapTool | undefined>(undefined);
     const [query, setQuery] = useState('');
     const [checked, setChecked] = useState<Set<string>>(() => new Set());
+    const [platform, setPlatform] = useState<Platform>('S1');
     const [filters, setFilters] = useState<Filters>(() => buildDefaultFilters());
     const [appliedFilters, setAppliedFilters] = useState<Filters>(() => buildDefaultFilters());
+    const [s2Filters, setS2Filters] = useState<S2Filters>(() => buildDefaultS2Filters());
     const [nwInput, setNwInput] = useState({ lat: '', lon: '' });
     const [seInput, setSeInput] = useState({ lat: '', lon: '' });
     const [aoiErrors, setAoiErrors] = useState<Set<AoiField>>(() => new Set());
@@ -230,6 +278,8 @@ function SearchPageInner() {
     }, []);
 
     const filtered = useMemo(() => {
+        // MOCK_SCENES 에 S1A/S1C/S2A/S2B 가 모두 들어있으며, sceneMatches 가 platform 별로
+        // 분기 처리한다. Umbra/Capella/KOMPSAT 은 mock 데이터 없어 자연스럽게 빈 결과.
         return MOCK_SCENES.filter((s) => {
             if (
                 query &&
@@ -237,9 +287,9 @@ function SearchPageInner() {
                 !s.region.toLowerCase().includes(query.toLowerCase())
             )
                 return false;
-            return sceneMatches(s, appliedFilters);
+            return sceneMatches(s, appliedFilters, platform, s2Filters);
         });
-    }, [query, appliedFilters]);
+    }, [query, appliedFilters, platform, s2Filters]);
 
     /** 필터/검색어/페이지 크기 변경 시 1페이지로 리셋. */
     useEffect(() => {
@@ -487,7 +537,7 @@ function SearchPageInner() {
             setHasSearched(true);
             if (refit) setFitKey(`fit-${Date.now()}`);
             setIsSearching(false);
-            const next = MOCK_SCENES.filter((s) => sceneMatches(s, draft));
+            const next = MOCK_SCENES.filter((s) => sceneMatches(s, draft, platform, s2Filters));
             toast(`${next.length}개 scene 검색 결과`, { tone: 'success' });
         }, 800);
     };
@@ -511,6 +561,35 @@ function SearchPageInner() {
                 {/* LEFT filter panel */}
                 <aside className="split__side split__side--left" style={{ width: 280 }}>
                     <div className="col gap-4" style={{ padding: 16, overflow: 'auto', flex: 1, minHeight: 0 }}>
+                        <div>
+                            <label className="field-label" style={{ marginBottom: 4 }}>
+                                위성 플랫폼
+                            </label>
+                            <select
+                                className="input"
+                                aria-label="위성 플랫폼 선택"
+                                style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13 }}
+                                value={platform}
+                                onChange={(e) => {
+                                    const next = e.target.value as Platform;
+                                    setPlatform(next);
+                                    const def = PLATFORMS.find((p) => p.value === next);
+                                    if (def && !def.ready) {
+                                        toast(`${def.label} — ${def.note ?? '준비 중'}`, { tone: 'warning' });
+                                    }
+                                }}
+                            >
+                                {PLATFORMS.map((p) => (
+                                    <option key={p.value} value={p.value}>
+                                        {p.label}
+                                        {p.ready ? '' : ' · 준비중'}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <FilterDivider />
+
                         <div>
                             <label className="field-label" style={{ marginBottom: 4 }}>
                                 AOI (관심 영역)
@@ -596,6 +675,8 @@ function SearchPageInner() {
 
                         <FilterDivider />
 
+                        {platform === 'S1' ? (
+                            <>
                         <div>
                             <label className="field-label">미션</label>
                             <div className="row gap-1" style={{ flexWrap: 'wrap' }}>
@@ -726,6 +807,14 @@ function SearchPageInner() {
                                 </span>
                             </div>
                         </div>
+                            </>
+                        ) : platform === 'S2' ? (
+                            <S2FilterPanel filters={s2Filters} setFilters={setS2Filters} />
+                        ) : (
+                            <ComingSoonPanel
+                                platform={PLATFORMS.find((p) => p.value === platform)!}
+                            />
+                        )}
 
                     </div>
                     <div
@@ -1084,10 +1173,35 @@ function SearchPageInner() {
                             {filtered.length === 0 ? (
                                 <div className="empty" style={{ padding: 60 }}>
                                     <div className="empty__icon">🔍</div>
-                                    <div>일치하는 scene이 없습니다</div>
-                                    <button type="button" className="btn btn--sm" style={{ marginTop: 12 }} onClick={resetFilters}>
-                                        필터 초기화
-                                    </button>
+                                    {platform === 'S1' ? (
+                                        <>
+                                            <div>일치하는 scene이 없습니다</div>
+                                            <button
+                                                type="button"
+                                                className="btn btn--sm"
+                                                style={{ marginTop: 12 }}
+                                                onClick={resetFilters}
+                                            >
+                                                필터 초기화
+                                            </button>
+                                        </>
+                                    ) : platform === 'S2' ? (
+                                        <>
+                                            <div>Sentinel-2 카탈로그 연동 준비 중</div>
+                                            <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
+                                                필터 UI 만 미리보기 — 실제 검색 결과는 아직 표시되지 않습니다.
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div>
+                                                {PLATFORMS.find((p) => p.value === platform)?.label} — 연동 준비 중
+                                            </div>
+                                            <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
+                                                Sentinel-1 을 선택하면 검색 결과를 볼 수 있습니다.
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
                             ) : (
                                 <table className="table">
@@ -1869,4 +1983,147 @@ function relativeOrbit(orbit: number | undefined, mission: string | undefined): 
 function pct(n: number, total: number): number {
     if (!total) return 0;
     return Math.round((n / total) * 100);
+}
+
+/** Sentinel-2(광학) 전용 필터 — 처리 레벨, 구름 비율, 밴드 선택. */
+function S2FilterPanel({
+    filters,
+    setFilters,
+}: {
+    filters: S2Filters;
+    setFilters: Dispatch<SetStateAction<S2Filters>>;
+}) {
+    const BANDS: Array<{ key: string; label: string; desc: string }> = [
+        { key: 'TCI', label: 'TCI (트루컬러)', desc: 'B04/B03/B02 합성 미리보기' },
+        { key: 'B08', label: 'B08 (NIR)', desc: '근적외 · 식생 분석' },
+        { key: 'B11', label: 'B11 (SWIR1)', desc: '단파적외 · 산불·습도' },
+        { key: 'B12', label: 'B12 (SWIR2)', desc: '단파적외 · 광물 탐사' },
+    ];
+    return (
+        <>
+            <div>
+                <label className="field-label">처리 레벨</label>
+                <div className="segmented" style={{ marginTop: 2, display: 'flex', width: '100%' }}>
+                    {(['L1C', 'L2A'] as const).map((lv) => (
+                        <button
+                            key={lv}
+                            type="button"
+                            className={filters.level === lv ? 'active' : ''}
+                            style={{ flex: 1 }}
+                            onClick={() => setFilters((f) => ({ ...f, level: lv }))}
+                        >
+                            {lv}
+                        </button>
+                    ))}
+                </div>
+                <div className="faint" style={{ fontSize: 11.5, marginTop: 8, lineHeight: 1.5 }}>
+                    {filters.level === 'L1C'
+                        ? 'Top-of-Atmosphere 반사율 (대기 보정 전)'
+                        : 'Bottom-of-Atmosphere 반사율 + SCL 클래스맵 (Sen2Cor 처리)'}
+                </div>
+            </div>
+
+            <FilterDivider />
+
+            <div>
+                <div className="between" style={{ alignItems: 'baseline' }}>
+                    <label className="field-label" style={{ margin: 0 }}>
+                        최대 구름 비율
+                    </label>
+                    <span className="mono tabular" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                        ≤ {filters.cloudMax}%
+                    </span>
+                </div>
+                <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={filters.cloudMax}
+                    onChange={(e) => setFilters((f) => ({ ...f, cloudMax: Number(e.target.value) }))}
+                    style={{ width: '100%', marginTop: 6 }}
+                    aria-label="최대 구름 비율"
+                />
+                <div className="row gap-1" style={{ marginTop: 6, flexWrap: 'wrap' }}>
+                    {[10, 20, 30, 50, 100].map((v) => (
+                        <span
+                            key={v}
+                            className={`chip${filters.cloudMax === v ? ' chip--active' : ''}`}
+                            style={{ height: 22, fontSize: 11 }}
+                            onClick={() => setFilters((f) => ({ ...f, cloudMax: v }))}
+                        >
+                            {v}%
+                        </span>
+                    ))}
+                </div>
+            </div>
+
+            <FilterDivider />
+
+            <div>
+                <label className="field-label">밴드 (다중 선택)</label>
+                <div className="col gap-2" style={{ marginTop: 4 }}>
+                    {BANDS.map((b) => {
+                        const checked = filters.bands.includes(b.key);
+                        return (
+                            <label
+                                key={b.key}
+                                className="row gap-2"
+                                style={{ cursor: 'pointer', alignItems: 'flex-start' }}
+                            >
+                                <input
+                                    type="checkbox"
+                                    className="checkbox"
+                                    style={{ marginTop: 2, flexShrink: 0 }}
+                                    checked={checked}
+                                    onChange={() =>
+                                        setFilters((f) => ({
+                                            ...f,
+                                            bands: checked
+                                                ? f.bands.filter((x) => x !== b.key)
+                                                : [...f.bands, b.key],
+                                        }))
+                                    }
+                                />
+                                <div className="col" style={{ gap: 1, minWidth: 0 }}>
+                                    <span style={{ fontWeight: 500, fontSize: 12.5 }}>{b.label}</span>
+                                    <span className="faint" style={{ fontSize: 10.5, lineHeight: 1.35 }}>
+                                        {b.desc}
+                                    </span>
+                                </div>
+                            </label>
+                        );
+                    })}
+                </div>
+            </div>
+        </>
+    );
+}
+
+/** 연동 준비 중인 위성용 안내 패널 — 필터 대신 placeholder + 외부 링크 안내. */
+function ComingSoonPanel({ platform }: { platform: PlatformDef }) {
+    return (
+        <div
+            className="col gap-2"
+            style={{
+                padding: 14,
+                background: 'var(--bg-2)',
+                border: '1px dashed var(--border-default)',
+                borderRadius: 8,
+                alignItems: 'center',
+                textAlign: 'center',
+            }}
+        >
+            <Icon name="satellite" size={20} style={{ opacity: 0.6 }} />
+            <div style={{ fontSize: 13, fontWeight: 500 }}>{platform.label}</div>
+            <div className="faint" style={{ fontSize: 11.5, lineHeight: 1.5 }}>
+                {platform.note ?? '연동 준비 중입니다.'}
+                <br />
+                연동되면 이 패널에서 검색·필터를 사용할 수 있습니다.
+            </div>
+            <span className="badge badge--warning" style={{ marginTop: 4 }}>
+                준비 중
+            </span>
+        </div>
+    );
 }
