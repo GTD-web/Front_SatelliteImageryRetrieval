@@ -93,20 +93,37 @@ function presetRange(preset: '1주' | '1개월' | '3개월' | '1년'): [Date, Da
     return [start, end];
 }
 
-function sceneMatches(s: HifiScene, f: Filters): boolean {
-    if (s.mission === 'S1A' && !f.s1a) return false;
-    if (s.mission === 'S1C' && !f.s1c) return false;
-    if (f.productMode === 'slc') {
-        if (s.product !== 'SLC') return false;
-    } else {
-        if (s.product === 'SLC') return false;
-        if (s.product === 'GRD' && !f.grd) return false;
-        if (s.product === 'OCN' && !f.ocn) return false;
-        if (s.product === 'RAW' && !f.raw) return false;
+/**
+ * Platform 별로 다른 분기 — S1 은 기존 `Filters`, S2 는 별도 `S2Filters` 로 평가.
+ * 그 외 플랫폼(Umbra/Capella/KOMPSAT)은 mock 카탈로그가 없으므로 항상 빈 결과.
+ */
+function sceneMatches(s: HifiScene, f: Filters, platform: Platform, s2: S2Filters): boolean {
+    if (platform === 'S1') {
+        if (s.mission !== 'S1A' && s.mission !== 'S1C') return false;
+        if (s.mission === 'S1A' && !f.s1a) return false;
+        if (s.mission === 'S1C' && !f.s1c) return false;
+        if (f.productMode === 'slc') {
+            if (s.product !== 'SLC') return false;
+        } else {
+            if (s.product === 'SLC') return false;
+            if (s.product === 'GRD' && !f.grd) return false;
+            if (s.product === 'OCN' && !f.ocn) return false;
+            if (s.product === 'RAW' && !f.raw) return false;
+        }
+        if (f.pol.length > 0 && (!s.pol || !f.pol.includes(s.pol))) return false;
+        if (f.haveOnly && !s.have) return false;
+        return true;
     }
-    if (f.pol.length > 0 && (!s.pol || !f.pol.includes(s.pol))) return false;
-    if (f.haveOnly && !s.have) return false;
-    return true;
+    if (platform === 'S2') {
+        // Sentinel-2 광학 — mission S2A/S2B/S2C, product L1C/L2A, cloudCover 검사.
+        if (s.mission !== 'S2A' && s.mission !== 'S2B' && s.mission !== 'S2C') return false;
+        if (s.product !== s2.level) return false;
+        if (typeof s.cloudCover === 'number' && s.cloudCover > s2.cloudMax) return false;
+        if (f.haveOnly && !s.have) return false;
+        return true;
+    }
+    // umbra / capella / kompsat — 연동 미지원
+    return false;
 }
 
 function buildDefaultFilters(): Filters {
@@ -261,8 +278,8 @@ function SearchPageInner() {
     }, []);
 
     const filtered = useMemo(() => {
-        // MOCK_SCENES 는 Sentinel-1 만 포함 — 다른 플랫폼은 빈 결과로 처리.
-        if (platform !== 'S1') return [];
+        // MOCK_SCENES 에 S1A/S1C/S2A/S2B 가 모두 들어있으며, sceneMatches 가 platform 별로
+        // 분기 처리한다. Umbra/Capella/KOMPSAT 은 mock 데이터 없어 자연스럽게 빈 결과.
         return MOCK_SCENES.filter((s) => {
             if (
                 query &&
@@ -270,9 +287,9 @@ function SearchPageInner() {
                 !s.region.toLowerCase().includes(query.toLowerCase())
             )
                 return false;
-            return sceneMatches(s, appliedFilters);
+            return sceneMatches(s, appliedFilters, platform, s2Filters);
         });
-    }, [query, appliedFilters, platform]);
+    }, [query, appliedFilters, platform, s2Filters]);
 
     /** 필터/검색어/페이지 크기 변경 시 1페이지로 리셋. */
     useEffect(() => {
@@ -520,7 +537,7 @@ function SearchPageInner() {
             setHasSearched(true);
             if (refit) setFitKey(`fit-${Date.now()}`);
             setIsSearching(false);
-            const next = MOCK_SCENES.filter((s) => sceneMatches(s, draft));
+            const next = MOCK_SCENES.filter((s) => sceneMatches(s, draft, platform, s2Filters));
             toast(`${next.length}개 scene 검색 결과`, { tone: 'success' });
         }, 800);
     };
