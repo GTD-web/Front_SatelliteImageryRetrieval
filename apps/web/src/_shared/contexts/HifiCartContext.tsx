@@ -15,6 +15,8 @@ export interface HifiScene {
     size: string;
     /** Footprint polygon ring as [lon, lat] pairs (EPSG:4326). Optional for map overlay. */
     footprint?: Array<[number, number]>;
+    /** Sentinel-2 등 광학 위성의 구름 비율 (%). SAR 씬에는 없음. */
+    cloudCover?: number;
 }
 
 interface HifiCartValue {

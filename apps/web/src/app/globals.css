@@ -165,8 +165,8 @@
 }
 [data-density='comfortable'],
 :root {
-    --row-h: 40px;
-    --pad-cell: 10px 14px;
+    --row-h: 34px;
+    --pad-cell: 6px 12px;
     --fs-body: 13.5px;
 }
 
@@ -724,7 +724,7 @@
     color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    padding: 10px 14px;
+    padding: 6px 12px;
     border-bottom: 1px solid var(--border-default);
     background: var(--bg-2);
     position: sticky;
@@ -1378,13 +1378,26 @@
 
 /* ═════ Collapsible results header (row toggles panel) ═════ */
 .results-header {
-    padding: 8px 14px;
+    padding: 5px 14px;
     cursor: pointer;
-    transition: background 120ms ease, border-bottom-color 220ms ease;
+    transition: background 120ms ease, border-bottom-color 220ms ease, padding 160ms ease;
     border-bottom: 1px solid transparent;
 }
 .results-header[data-open='true'] {
     border-bottom-color: var(--border-subtle);
+}
+/* 접힌 상태일 때 헤더 높이 축소 — vertical padding + 탭 vertical padding 을 함께 줄인다. */
+.results-header[data-open='false'] {
+    padding-top: 3px;
+    padding-bottom: 3px;
+}
+.results-header[data-open='false'] .results-tab {
+    padding-top: 1px;
+    padding-bottom: 1px;
+}
+.results-header[data-open='false'] .btn--sm {
+    padding-top: 2px;
+    padding-bottom: 2px;
 }
 .results-header:hover {
     background: color-mix(in srgb, var(--text-primary) 2%, transparent);
