@@ -18,24 +18,24 @@
         'Noto Sans KR', sans-serif;
     --font-mono: 'Spoqa Han Sans Neo', 'Ubuntu Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
 
-    /* Surface layers */
-    --bg-0: #09090b;
-    --bg-1: #0f1012;
-    --bg-2: #16171a;
-    --bg-3: #1c1d21;
-    --bg-4: #25262b;
-    --bg-overlay: rgba(9, 9, 11, 0.72);
+    /* Surface layers — 거의-검정 대신 '진한 회색'으로 올려 레이어 구분/시인성을 높인다. */
+    --bg-0: #121317;
+    --bg-1: #181a1e;
+    --bg-2: #1f2127;
+    --bg-3: #282a31;
+    --bg-4: #33353d;
+    --bg-overlay: rgba(12, 13, 17, 0.72);
 
-    /* Borders */
-    --border-subtle: #202126;
-    --border-default: #2a2b31;
-    --border-strong: #3a3b42;
+    /* Borders — 더 또렷하게 (요소 경계 가독성) */
+    --border-subtle: #2c2e35;
+    --border-default: #3b3e46;
+    --border-strong: #4c4f59;
 
     /* Text */
     --text-primary: #f4f4f5;
     --text-secondary: #a1a1aa;
-    --text-tertiary: #71717a;
-    --text-disabled: #52525b;
+    --text-tertiary: #8a8a93;
+    --text-disabled: #62626b;
     --text-inverse: #0f1012;
 
     /* Brand — Lumir cyan */
@@ -86,14 +86,14 @@
 /* Legacy 테마 토큰 유지 (기존 Tailwind 클래스와의 호환) */
 :root,
 [data-theme='dark'] {
-    --app: 15 16 18;
-    --surface: 22 23 26;
-    --surface-muted: 28 29 33;
-    --surface-hover: 37 38 43;
+    --app: 24 26 30;
+    --surface: 31 33 39;
+    --surface-muted: 40 42 49;
+    --surface-hover: 51 53 61;
     --content: 244 244 245;
     --content-muted: 161 161 170;
-    --content-subtle: 113 113 122;
-    --line: 42 43 49;
+    --content-subtle: 138 138 147;
+    --line: 59 62 70;
 }
 
 [data-theme='light'] {
