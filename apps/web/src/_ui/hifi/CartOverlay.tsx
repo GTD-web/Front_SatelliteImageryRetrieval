@@ -212,7 +212,7 @@ function CartOverlayPanel() {
                                         alignItems: 'flex-start',
                                     }}
                                 >
-                                    <Quicklook sceneId={s.id} size={40} />
+                                    <Quicklook sceneId={s.id} size={40} product={s.product} />
                                     <div className="col" style={{ gap: 2, flex: 1, minWidth: 0 }}>
                                         <div className="mono truncate" style={{ fontSize: 11 }}>
                                             {s.id.slice(0, 42)}…

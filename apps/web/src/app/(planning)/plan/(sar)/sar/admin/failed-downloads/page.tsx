@@ -274,7 +274,7 @@ export default function FailedDownloadsPage() {
                                             />
                                         </td>
                                         <td>
-                                            <Quicklook sceneId={j.scene} size={40} />
+                                            <Quicklook sceneId={j.scene} size={40} product={j.productKind} />
                                         </td>
                                         <td>
                                             <div className="col" style={{ gap: 2 }}>

@@ -988,7 +988,8 @@ function ScenesModal({ product, onClose }: { product: InsarProduct; onClose: () 
                         {scenes.map((s) => (
                             <tr key={s.id}>
                                 <td>
-                                    <Quicklook sceneId={s.id} size={42} />
+                                    {/* InSAR scene 은 항상 SLC 기반 — 정책상 미리보기 미지원이라 N/A 로 그려진다. */}
+                                    <Quicklook sceneId={s.id} size={42} product="SLC" />
                                 </td>
                                 <td>
                                     <div className="mono truncate" style={{ fontSize: 11.5, maxWidth: 460 }}>

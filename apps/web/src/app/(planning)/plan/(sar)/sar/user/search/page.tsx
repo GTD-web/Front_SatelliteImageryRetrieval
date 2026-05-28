@@ -1282,7 +1282,7 @@ function SearchPageInner() {
                                                 </td>
                                                 <td>
                                                     <div className="row gap-3">
-                                                        <Quicklook sceneId={s.id} size={42} />
+                                                        <Quicklook sceneId={s.id} size={42} product={s.product} />
                                                         <div
                                                             className="mono"
                                                             style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}
@@ -1733,7 +1733,7 @@ function SceneDetailModal({ scene, onClose, onAddToCart, inCart }: DetailProps) 
             )}
         >
             <div className="row gap-4" style={{ alignItems: 'flex-start' }}>
-                <Quicklook sceneId={scene.id} size={200} />
+                <Quicklook sceneId={scene.id} size={200} product={scene.product} />
                 <div className="col gap-3" style={{ flex: 1, minWidth: 0 }}>
                     <div>
                         <div className="field-label">Scene ID</div>

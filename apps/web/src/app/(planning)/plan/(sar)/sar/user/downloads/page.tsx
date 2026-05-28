@@ -328,7 +328,7 @@ export default function DownloadsPage() {
                                     {filtered.map((j) => (
                                         <tr key={j.id}>
                                             <td>
-                                                <Quicklook sceneId={j.scene} size={42} />
+                                                <Quicklook sceneId={j.scene} size={42} product={j.productKind} />
                                             </td>
                                             <td>
                                                 <div className="row gap-2">
