@@ -61,10 +61,16 @@ const ADMIN_ITEMS: NavItem[] = [
     {
         label: '크롤 AOI',
         href: `${base}/admin/crawl-targets`,
-        icon: 'satellite',
+        icon: 'mapPin',
         match: (p) => p.includes('/admin/crawl-targets'),
     },
     { label: 'Sync', href: `${base}/admin/sync-monitor`, icon: 'refresh', match: (p) => p.includes('/admin/sync-monitor') },
+    {
+        label: '실패한 다운로드',
+        href: `${base}/admin/failed-downloads`,
+        icon: 'download',
+        match: (p) => p.includes('/admin/failed-downloads'),
+    },
     { label: '감사', href: `${base}/admin/audit-logs`, icon: 'clock', match: (p) => p.includes('/admin/audit-logs') },
 ];
 

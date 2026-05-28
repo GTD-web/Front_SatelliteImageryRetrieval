@@ -1,5 +1,7 @@
 'use client';
 
+import { memo } from 'react';
+
 import { MapCanvas, type MapFootprint } from '@/_ui/hifi';
 
 // 포항 AOI + 주변 Sentinel-1 footprint 데모 (EPSG:4326 lon/lat).
@@ -55,8 +57,13 @@ const AUTH_AOI: Array<[number, number]> = [
     [129.26, 36.1],
 ];
 
-/** 로그인/회원가입 공통 좌측 히어로 패널 (지도 + 마케팅 문구). */
-export function AuthHeroPane() {
+/**
+ * 로그인/회원가입 공통 좌측 히어로 패널 (지도 + 마케팅 문구).
+ *
+ * `memo`로 감싸 부모(AuthView)가 폼 전환으로 리렌더돼도 이 서브트리는 리렌더되지 않게 한다.
+ * (props 없음 → 항상 동일.) `MapCanvas`가 언마운트/재초기화되지 않도록 보장하는 안전장치.
+ */
+export const AuthHeroPane = memo(function AuthHeroPane() {
     return (
         <div
             style={{
@@ -139,4 +146,4 @@ export function AuthHeroPane() {
             </div>
         </div>
     );
-}
+});

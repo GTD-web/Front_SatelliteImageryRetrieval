@@ -10,10 +10,15 @@ import {
     type ReactNode,
 } from 'react';
 
+import { usePathname } from 'next/navigation';
+
 import { Icon, type IconName } from './Icon';
 import { useToast } from './ToastProvider';
 
 type Tone = 'success' | 'warning' | 'danger' | 'info';
+
+/** 알림 노출 대상. 'admin'은 관리자 화면(/admin/)에서만, 'user'는 일반 화면에서만, 'all'은 어디서나. */
+type Audience = 'all' | 'admin' | 'user';
 
 interface Notification {
     id: string;
@@ -23,6 +28,8 @@ interface Notification {
     time: string;
     read: boolean;
     icon: IconName;
+    /** 미지정 시 'all'(모든 화면 노출). */
+    audience?: Audience;
 }
 
 const SEED: Notification[] = [
@@ -34,6 +41,7 @@ const SEED: Notification[] = [
         time: '2분 전',
         read: false,
         icon: 'download',
+        audience: 'all',
     },
     {
         id: 'n-8819',
@@ -43,6 +51,8 @@ const SEED: Notification[] = [
         time: '1시간 전',
         read: false,
         icon: 'server',
+        // 다운로드 잡 실패 — 운영 관리 사안이라 관리자 화면에서만 노출.
+        audience: 'admin',
     },
     {
         id: 'n-8818',
@@ -51,7 +61,9 @@ const SEED: Notification[] = [
         tone: 'info',
         time: '3시간 전',
         read: true,
-        icon: 'satellite',
+        icon: 'mapPin',
+        // 크롤은 관리자 기능(크롤 AOI)이라 관리자 화면에서만 노출.
+        audience: 'admin',
     },
 ];
 
@@ -77,6 +89,9 @@ export function NotificationsOverlayProvider({ children }: { children: ReactNode
     const [items, setItems] = useState<Notification[]>(SEED);
     const [filter, setFilter] = useState<'all' | 'unread'>('all');
     const toast = useToast();
+    // SideNav와 동일하게 pathname으로 현재 화면 맥락(관리자/일반)을 판별한다.
+    const pathname = usePathname() ?? '';
+    const isAdmin = pathname.includes('/admin/');
 
     const show = useCallback(() => setOpen(true), []);
     const hide = useCallback(() => setOpen(false), []);
@@ -96,11 +111,25 @@ export function NotificationsOverlayProvider({ children }: { children: ReactNode
         };
     }, [open]);
 
-    const unreadCount = items.filter((n) => !n.read).length;
-    const visible = filter === 'unread' ? items.filter((n) => !n.read) : items;
+    // 현재 화면 맥락에 맞는 알림만 노출. 관리자 알림은 /admin/ 화면에서만 보인다.
+    const audienceItems = useMemo(
+        () =>
+            items.filter((n) => {
+                const audience = n.audience ?? 'all';
+                if (audience === 'admin') return isAdmin;
+                if (audience === 'user') return !isAdmin;
+                return true;
+            }),
+        [items, isAdmin],
+    );
+
+    const unreadCount = audienceItems.filter((n) => !n.read).length;
+    const visible = filter === 'unread' ? audienceItems.filter((n) => !n.read) : audienceItems;
 
     const markAllRead = () => {
-        setItems((prev) => prev.map((n) => ({ ...n, read: true })));
+        // 현재 화면에 보이는(audience 일치) 알림만 읽음 처리 — 숨겨진 관리자 알림 상태는 보존.
+        const visibleIds = new Set(audienceItems.map((n) => n.id));
+        setItems((prev) => prev.map((n) => (visibleIds.has(n.id) ? { ...n, read: true } : n)));
         toast('모두 읽음으로 표시');
     };
     const removeOne = (id: string) => {
@@ -192,7 +221,7 @@ export function NotificationsOverlayProvider({ children }: { children: ReactNode
                         className={`chip${filter === 'all' ? ' chip--active' : ''}`}
                         onClick={() => setFilter('all')}
                     >
-                        전체 {items.length}
+                        전체 {audienceItems.length}
                     </span>
                     <span
                         className={`chip${filter === 'unread' ? ' chip--active' : ''}`}

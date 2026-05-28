@@ -69,7 +69,6 @@ interface RequestForm {
     minScenes: number;
     referenceLon: string;
     referenceLat: string;
-    priority: 'normal' | 'urgent';
 }
 
 function buildDefaultRequest(): RequestForm {
@@ -96,7 +95,6 @@ function buildDefaultRequest(): RequestForm {
         minScenes: 20,
         referenceLon: '',
         referenceLat: '',
-        priority: 'normal',
     };
 }
 
@@ -1234,23 +1232,6 @@ function RequestSidebar({
                     </div>
                 </Section>
 
-                <Section title="우선순위">
-                    <div className="row gap-1">
-                        <span
-                            className={`chip${form.priority === 'normal' ? ' chip--active' : ''}`}
-                            onClick={() => onChangeField('priority', 'normal')}
-                        >
-                            보통
-                        </span>
-                        <span
-                            className={`chip${form.priority === 'urgent' ? ' chip--active' : ''}`}
-                            onClick={() => onChangeField('priority', 'urgent')}
-                        >
-                            긴급
-                        </span>
-                        <InfoTip text="긴급은 워커 큐에서 우선 배치되지만, 처리 시간을 보장하지는 않습니다." />
-                    </div>
-                </Section>
             </div>
 
             {/* scene 선택 탭 — 폼과 같은 위치에 배치되며 탭으로 토글된다.
