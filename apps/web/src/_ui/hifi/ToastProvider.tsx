@@ -79,7 +79,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                             onClick={() => dismiss(t.id)}
                             aria-label="닫기"
                         >
-                            <Icon name="x" size={12} />
+                            <Icon name="x" size={14} />
                         </button>
                     </div>
                 ))}
