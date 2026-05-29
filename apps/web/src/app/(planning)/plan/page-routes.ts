@@ -7,6 +7,7 @@ import {
     Search,
     ScrollText,
     Settings,
+    ShieldCheck,
     Users,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -31,6 +32,7 @@ export const adminRoutes: RouteDef[] = [
     { href: '/plan/sar/admin/users', label: '사용자', icon: Users },
     { href: '/plan/sar/admin/crawl-targets', label: 'AOI', icon: Map },
     { href: '/plan/sar/admin/sync-monitor', label: 'Sync', icon: Activity },
+    { href: '/plan/sar/admin/analysis-qa', label: '분석 품질', icon: ShieldCheck },
     { href: '/plan/sar/admin/audit-logs', label: '감사', icon: ScrollText },
 ];
 
