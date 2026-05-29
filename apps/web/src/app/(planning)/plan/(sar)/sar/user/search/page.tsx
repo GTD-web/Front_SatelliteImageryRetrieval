@@ -69,7 +69,6 @@ interface Filters {
     s1c: boolean;
     productMode: ProductMode;
     grd: boolean;
-    ocn: boolean;
     raw: boolean;
     pol: string[];
     passA: boolean;
@@ -107,7 +106,7 @@ function sceneMatches(s: HifiScene, f: Filters, platform: Platform, s2: S2Filter
         } else {
             if (s.product === 'SLC') return false;
             if (s.product === 'GRD' && !f.grd) return false;
-            if (s.product === 'OCN' && !f.ocn) return false;
+            if (s.product === 'OCN') return false; // OCN 은 취급하지 않음
             if (s.product === 'RAW' && !f.raw) return false;
         }
         if (f.pol.length > 0 && (!s.pol || !f.pol.includes(s.pol))) return false;
@@ -133,7 +132,6 @@ function buildDefaultFilters(): Filters {
         s1c: true,
         productMode: 'slc',
         grd: true,
-        ocn: false,
         raw: false,
         pol: ['VV+VH'],
         passA: true,
@@ -322,7 +320,6 @@ function SearchPageInner() {
         filters.s1c,
         filters.productMode,
         filters.grd,
-        filters.ocn,
         filters.raw,
         filters.pol,
         filters.passA,
@@ -719,7 +716,7 @@ function SearchPageInner() {
                                     style={{ flex: 1 }}
                                     onClick={() => setFilters((f) => ({ ...f, productMode: 'others' }))}
                                 >
-                                    GRD / OCN / RAW
+                                    GRD / RAW
                                 </button>
                             </div>
                             {filters.productMode === 'slc' ? (
@@ -734,7 +731,6 @@ function SearchPageInner() {
                                     {(
                                         [
                                             ['grd', 'GRD', 'Ground Range Detected — 진폭 영상'],
-                                            ['ocn', 'OCN', 'Ocean — 해양 풍속·파랑'],
                                             ['raw', 'RAW', 'Raw — 원시 신호'],
                                         ] as const
                                     ).map(([k, label, desc]) => (
@@ -1846,7 +1842,7 @@ function ResultsFilter({
                     n={facetCounts['product:SLC'] ?? 0}
                     onClick={() => setFilters((f) => ({ ...f, productMode: 'slc' }))}
                 />
-                {(['grd', 'ocn', 'raw'] as const).map((k) => {
+                {(['grd', 'raw'] as const).map((k) => {
                     const upper = k.toUpperCase();
                     return (
                         <FilterChip
@@ -1862,7 +1858,6 @@ function ResultsFilter({
                                               ...f,
                                               productMode: 'others',
                                               grd: false,
-                                              ocn: false,
                                               raw: false,
                                               [k]: true,
                                           },
