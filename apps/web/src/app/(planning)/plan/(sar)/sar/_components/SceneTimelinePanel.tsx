@@ -66,6 +66,16 @@ export function RequestTimelinePanel({
                         />
                         <Icon name="chart" size={14} />
                         <span style={{ fontWeight: 600 }}>타임라인</span>
+                        {/* 검색 기간 — 탭바(타임라인 라벨) 옆에 표시. */}
+                        <span className="faint" style={{ fontSize: 11, marginLeft: 4 }}>
+                            기간
+                        </span>
+                        <span
+                            className="mono tabular"
+                            style={{ fontSize: 11.5, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}
+                        >
+                            {formatYmd(rangeStart)} ~ {formatYmd(rangeEnd)}
+                        </span>
                     </div>
                     <div className="row gap-2" style={{ alignItems: 'center' }}>
                         {!collapsed ? (

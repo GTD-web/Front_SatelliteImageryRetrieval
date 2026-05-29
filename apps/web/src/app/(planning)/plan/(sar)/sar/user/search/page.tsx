@@ -554,6 +554,11 @@ function SearchPageInner() {
     };
 
     const totalGb = filtered.reduce((a, s) => a + parseFloat(s.size), 0);
+    const haveCount = filtered.filter((s) => s.have).length;
+    const needCount = filtered.length - haveCount;
+    const resultDates = filtered.map((s) => s.date.slice(0, 10)).sort();
+    const resultRange =
+        resultDates.length > 0 ? `${resultDates[0]} ~ ${resultDates[resultDates.length - 1]}` : '—';
 
     return (
         <div className="col" style={{ flex: 1, minHeight: 0 }}>
@@ -671,6 +676,17 @@ function SearchPageInner() {
                                     </span>
                                 ))}
                             </div>
+                            {filtered.length > 0 ? (
+                                <div
+                                    className="between"
+                                    style={{ marginTop: 8, fontSize: 11.5, color: 'var(--text-tertiary)' }}
+                                >
+                                    <span className="faint">결과 기간</span>
+                                    <span className="mono tabular" style={{ color: 'var(--text-secondary)' }}>
+                                        {resultRange}
+                                    </span>
+                                </div>
+                            ) : null}
                         </div>
 
                         <FilterDivider />
@@ -1076,6 +1092,26 @@ function SearchPageInner() {
                                         );
                                     })}
                                 </div>
+                                {/* 검색 기간 — 탭바 옆에 두어 결과/타임라인 두 탭에서 모두 보이게. */}
+                                <span
+                                    style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'baseline',
+                                        gap: 6,
+                                        marginLeft: 4,
+                                        whiteSpace: 'nowrap',
+                                    }}
+                                >
+                                    <span className="faint" style={{ fontSize: 11 }}>
+                                        기간
+                                    </span>
+                                    <span
+                                        className="mono tabular"
+                                        style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}
+                                    >
+                                        {fmtYmd(filters.startDate)} ~ {fmtYmd(filters.endDate)}
+                                    </span>
+                                </span>
                                 {resultsTab === 'timeline' ? (
                                     <span className="faint" style={{ fontSize: 12 }}>
                                         핸들을 드래그해 검색 기간을 조정하세요
@@ -1153,14 +1189,13 @@ function SearchPageInner() {
                                     minHeight: 0,
                                     overflow: 'hidden',
                                     // list 탭은 카드/필터를 위해 패딩, timeline 탭은 풀블리드 SVG 라 0.
-                                    padding: resultsTab === 'list' ? '8px 12px 12px' : 0,
+                                    // 닫혔을 때는 0 — grid 0fr 접힘에서 grid item 의 패딩이 잔여 높이로
+                                    // 남아 바 아래 여백이 생기는 것을 방지한다.
+                                    padding: !resultsOpen ? 0 : resultsTab === 'list' ? '8px 12px 12px' : 0,
                                 }}
                             >
                         {resultsTab === 'list' ? (
                             <>
-                        {filtered.length > 0 ? (
-                            <CompactStatsStrip scenes={filtered} totalGb={totalGb} />
-                        ) : null}
                         <ResultsFilter
                             filters={appliedFilters}
                             setFilters={setAppliedFilters}
@@ -1224,7 +1259,7 @@ function SearchPageInner() {
                                             <th>취득 시각</th>
                                             <th className="num">용량</th>
                                             <th>상태</th>
-                                            <th style={{ width: 120 }}></th>
+                                            <th style={{ width: 80 }}></th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -1247,7 +1282,7 @@ function SearchPageInner() {
                                                 </td>
                                                 <td>
                                                     <div className="row gap-3">
-                                                        <Quicklook sceneId={s.id} size={42} />
+                                                        <Quicklook sceneId={s.id} size={42} product={s.product} />
                                                         <div
                                                             className="mono"
                                                             style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}
@@ -1291,14 +1326,6 @@ function SearchPageInner() {
                                                 </td>
                                                 <td onClick={(e) => e.stopPropagation()}>
                                                     <div className="row gap-1">
-                                                        <button
-                                                            type="button"
-                                                            className="btn btn--ghost btn--icon btn--sm"
-                                                            data-tooltip="상세"
-                                                            onClick={() => setSceneModal(s)}
-                                                        >
-                                                            <Icon name="chevronRight" size={13} />
-                                                        </button>
                                                         {inCart(s.id) ? (
                                                             <button
                                                                 type="button"
@@ -1333,9 +1360,40 @@ function SearchPageInner() {
                                     gap: 14,
                                     flexWrap: 'wrap',
                                     alignItems: 'center',
-                                    justifyContent: 'flex-end',
+                                    justifyContent: 'space-between',
                                 }}
                             >
+                                {/* 좌하단 — 결과 통계 (상단에서 이동). */}
+                                {filtered.length > 0 ? (
+                                    <div
+                                        className="row"
+                                        style={{ gap: 14, flexWrap: 'wrap', alignItems: 'baseline' }}
+                                    >
+                                        <CompactStat
+                                            label="결과"
+                                            value={`${filtered.length}`}
+                                            sub={`${totalGb.toFixed(1)} GB`}
+                                        />
+                                        <Sep />
+                                        <CompactStat
+                                            label="NAS 보유"
+                                            value={`${haveCount}`}
+                                            sub={`${pct(haveCount, filtered.length)}%`}
+                                            tone="success"
+                                        />
+                                        <Sep />
+                                        <CompactStat
+                                            label="받기 필요"
+                                            value={`${needCount}`}
+                                            sub={`${pct(needCount, filtered.length)}%`}
+                                            tone="warning"
+                                        />
+                                    </div>
+                                ) : (
+                                    <span />
+                                )}
+                                {/* 우하단 — 범위 표시 + 페이지네이션. */}
+                                <div className="row" style={{ gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
                                 <span className="tabular" style={{ whiteSpace: 'nowrap' }}>
                                     {filtered.length === 0
                                         ? '0'
@@ -1412,6 +1470,7 @@ function SearchPageInner() {
                                         ))}
                                     </select>
                                 </label>
+                                </div>
                             </div>
                         </div>
                             </>
@@ -1674,7 +1733,7 @@ function SceneDetailModal({ scene, onClose, onAddToCart, inCart }: DetailProps) 
             )}
         >
             <div className="row gap-4" style={{ alignItems: 'flex-start' }}>
-                <Quicklook sceneId={scene.id} size={200} />
+                <Quicklook sceneId={scene.id} size={200} product={scene.product} />
                 <div className="col gap-3" style={{ flex: 1, minWidth: 0 }}>
                     <div>
                         <div className="field-label">Scene ID</div>
@@ -1744,54 +1803,17 @@ function SceneDetailModal({ scene, onClose, onAddToCart, inCart }: DetailProps) 
     );
 }
 
-function CompactStatsStrip({ scenes, totalGb }: { scenes: HifiScene[]; totalGb: number }) {
-    const total = scenes.length;
-    const haveCount = scenes.filter((s) => s.have).length;
-    const needCount = total - haveCount;
-    const dates = scenes.map((s) => s.date.slice(0, 10)).sort();
-    const dateRange = dates.length > 0 ? `${dates[0]} ~ ${dates[dates.length - 1]}` : '—';
-    return (
-        <div
-            className="row"
-            style={{
-                marginBottom: 8,
-                padding: '6px 12px',
-                background: 'var(--bg-2)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 8,
-                flexWrap: 'wrap',
-                gap: 14,
-                alignItems: 'baseline',
-                rowGap: 4,
-            }}
-        >
-            <CompactStat label="결과" value={`${total}`} sub={`${totalGb.toFixed(1)} GB`} />
-            <Sep />
-            <CompactStat
-                label="NAS 보유"
-                value={`${haveCount}`}
-                sub={`${pct(haveCount, total)}%`}
-                tone="success"
-            />
-            <Sep />
-            <CompactStat
-                label="받기 필요"
-                value={`${needCount}`}
-                sub={`${pct(needCount, total)}%`}
-                tone="warning"
-            />
-            <Sep />
-            <CompactStat label="기간" value={dateRange} mono />
-        </div>
-    );
-}
-
 function Sep() {
     return (
         <span className="faint" style={{ fontSize: 12, opacity: 0.4 }}>
             |
         </span>
     );
+}
+
+/** Date → YYYY-MM-DD (로컬 기준). */
+function fmtYmd(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 /** 결과 패널의 quick-filter 행 — 미션/제품/편광별 카운트 칩. 사이드바 필터 상태와 동기화. */

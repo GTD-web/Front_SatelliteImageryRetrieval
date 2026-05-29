@@ -118,15 +118,15 @@ export function AoiThumbnail({
             <g clipPath={`url(#clip-${width}-${height})`}>
                 <path
                     d={toPath(KOREA_MAINLAND)}
-                    fill="var(--bg-3)"
-                    stroke="var(--border-default)"
-                    strokeWidth={0.6}
+                    fill="var(--bg-4)"
+                    stroke="var(--border-strong)"
+                    strokeWidth={0.8}
                 />
                 <path
                     d={toPath(JEJU)}
-                    fill="var(--bg-3)"
-                    stroke="var(--border-default)"
-                    strokeWidth={0.6}
+                    fill="var(--bg-4)"
+                    stroke="var(--border-strong)"
+                    strokeWidth={0.8}
                 />
                 <rect
                     x={x}

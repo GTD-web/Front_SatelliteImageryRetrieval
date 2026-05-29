@@ -168,7 +168,7 @@ export default function AoisPage() {
                                     className="btn btn--sm"
                                     onClick={() => goApply(a, 'insar')}
                                 >
-                                    InSAR 에 적용
+                                    분석에 적용
                                 </button>
                                 <button
                                     type="button"

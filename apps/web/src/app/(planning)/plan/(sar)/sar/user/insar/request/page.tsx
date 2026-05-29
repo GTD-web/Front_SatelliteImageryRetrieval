@@ -8,7 +8,6 @@ import {
     Icon,
     InfoTip,
     MapCanvas,
-    Quicklook,
     useToast,
     type MapFootprint,
     type MapTool,
@@ -69,7 +68,6 @@ interface RequestForm {
     minScenes: number;
     referenceLon: string;
     referenceLat: string;
-    priority: 'normal' | 'urgent';
 }
 
 function buildDefaultRequest(): RequestForm {
@@ -96,7 +94,6 @@ function buildDefaultRequest(): RequestForm {
         minScenes: 20,
         referenceLon: '',
         referenceLat: '',
-        priority: 'normal',
     };
 }
 
@@ -1234,23 +1231,6 @@ function RequestSidebar({
                     </div>
                 </Section>
 
-                <Section title="우선순위">
-                    <div className="row gap-1">
-                        <span
-                            className={`chip${form.priority === 'normal' ? ' chip--active' : ''}`}
-                            onClick={() => onChangeField('priority', 'normal')}
-                        >
-                            보통
-                        </span>
-                        <span
-                            className={`chip${form.priority === 'urgent' ? ' chip--active' : ''}`}
-                            onClick={() => onChangeField('priority', 'urgent')}
-                        >
-                            긴급
-                        </span>
-                        <InfoTip text="긴급은 워커 큐에서 우선 배치되지만, 처리 시간을 보장하지는 않습니다." />
-                    </div>
-                </Section>
             </div>
 
             {/* scene 선택 탭 — 폼과 같은 위치에 배치되며 탭으로 토글된다.
@@ -1580,32 +1560,29 @@ function ScenePickerInline({
                                     onClick={(e) => e.stopPropagation()}
                                     style={{ flexShrink: 0 }}
                                 />
-                                <div style={{ position: 'relative', flexShrink: 0 }}>
-                                    <Quicklook sceneId={s.id} size={40} />
-                                    {order ? (
-                                        <span
-                                            style={{
-                                                position: 'absolute',
-                                                top: -4,
-                                                right: -4,
-                                                width: 16,
-                                                height: 16,
-                                                borderRadius: '50%',
-                                                background: 'var(--accent)',
-                                                color: '#fff',
-                                                fontSize: 9,
-                                                fontWeight: 700,
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                border: '1.5px solid var(--bg-1)',
-                                                fontFamily: 'var(--font-mono)',
-                                            }}
-                                        >
-                                            {order}
-                                        </span>
-                                    ) : null}
-                                </div>
+                                {/* SLC 는 미리보기 미지원 — 썸네일 대신 선택 순서 칩만 보여주고
+                                    실제 풋프린트는 지도에서 확인. */}
+                                {order ? (
+                                    <span
+                                        title={`선택 순서: ${order}`}
+                                        style={{
+                                            flexShrink: 0,
+                                            width: 22,
+                                            height: 22,
+                                            borderRadius: '50%',
+                                            background: 'var(--accent)',
+                                            color: '#fff',
+                                            fontSize: 11,
+                                            fontWeight: 700,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            fontFamily: 'var(--font-mono)',
+                                        }}
+                                    >
+                                        {order}
+                                    </span>
+                                ) : null}
                                 <div className="col" style={{ flex: 1, gap: 2, minWidth: 0 }}>
                                     <div className="row gap-2" style={{ alignItems: 'center' }}>
                                         <span

@@ -1,11 +1,18 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { Icon, useConfirm, useToast } from '@/_ui/hifi';
-
-type UserStatus = 'active' | 'pending' | 'inactive';
-type UserRole = 'admin' | 'downloader' | 'viewer' | 'pending';
+import {
+    EDITABLE_USER_ROLES,
+    USER_ROLE_BADGE_CLASS,
+    USER_ROLE_LABELS,
+    USER_ROLES,
+    USER_STATUS_CLASS,
+    USER_STATUS_LABELS,
+    type UserRole,
+    type UserStatus,
+} from '@/_shared/constants/user';
 
 interface User {
     email: string;
@@ -33,6 +40,7 @@ export default function UsersPage() {
     const [q, setQ] = useState('');
     const [statusFilter, setStatusFilter] = useState<'all' | UserStatus>('all');
     const [roleFilter, setRoleFilter] = useState<'전체' | UserRole>('전체');
+    const [editing, setEditing] = useState<User | null>(null);
 
     const filtered = useMemo(
         () =>
@@ -55,7 +63,14 @@ export default function UsersPage() {
         [users],
     );
 
-    const approve = (email: string) => {
+    const approve = async (email: string) => {
+        const ok = await confirm({
+            title: '가입 승인',
+            body: `${email} 사용자의 가입을 승인하시겠습니까?`,
+            sub: '승인하면 viewer 권한으로 활성화됩니다.',
+            confirmLabel: '승인',
+        });
+        if (!ok) return;
         setUsers((prev) =>
             prev.map((u) =>
                 u.email === email ? { ...u, status: 'active' as UserStatus, role: 'viewer' as UserRole, last: '방금' } : u,
@@ -66,13 +81,20 @@ export default function UsersPage() {
     const reject = async (email: string) => {
         const ok = await confirm({
             title: '가입 거절',
-            body: `${email} 사용자의 가입을 거절합니다.`,
+            body: `${email} 사용자의 가입을 거절하시겠습니까?`,
+            sub: '거절하면 가입 요청이 목록에서 제거됩니다.',
             confirmLabel: '거절',
             danger: true,
         });
         if (!ok) return;
         setUsers((prev) => prev.filter((u) => u.email !== email));
         toast(`${email} 거절됨`);
+    };
+
+    const saveUser = (email: string, patch: { name: string; role: UserRole; status: UserStatus }) => {
+        setUsers((prev) => prev.map((u) => (u.email === email ? { ...u, ...patch } : u)));
+        toast(`${email} 정보가 저장되었습니다`, { tone: 'success' });
+        setEditing(null);
     };
 
     return (
@@ -127,11 +149,12 @@ export default function UsersPage() {
                         value={roleFilter}
                         onChange={(e) => setRoleFilter(e.target.value as '전체' | UserRole)}
                     >
-                        <option>전체</option>
-                        <option>admin</option>
-                        <option>downloader</option>
-                        <option>viewer</option>
-                        <option>pending</option>
+                        <option value="전체">전체</option>
+                        {USER_ROLES.map((r) => (
+                            <option key={r} value={r}>
+                                {USER_ROLE_LABELS[r]}
+                            </option>
+                        ))}
                     </select>
                     <button
                         type="button"
@@ -206,24 +229,14 @@ export default function UsersPage() {
                                             </div>
                                         </td>
                                         <td>
-                                            {u.role === 'pending' ? (
-                                                <span className="badge badge--warning">승인 필요</span>
-                                            ) : u.role === 'admin' ? (
-                                                <span className="badge badge--brand2">admin</span>
-                                            ) : u.role === 'downloader' ? (
-                                                <span className="badge badge--accent">downloader</span>
-                                            ) : (
-                                                <span className="badge badge--neutral">viewer</span>
-                                            )}
+                                            <span className={USER_ROLE_BADGE_CLASS[u.role]}>
+                                                {USER_ROLE_LABELS[u.role]}
+                                            </span>
                                         </td>
                                         <td>
-                                            {u.status === 'active' ? (
-                                                <span className="status status--done">활성</span>
-                                            ) : u.status === 'pending' ? (
-                                                <span className="status status--pending">대기</span>
-                                            ) : (
-                                                <span className="status status--queued">비활성</span>
-                                            )}
+                                            <span className={USER_STATUS_CLASS[u.status]}>
+                                                {USER_STATUS_LABELS[u.status]}
+                                            </span>
                                         </td>
                                         <td className="mono tabular faint" style={{ fontSize: 12 }}>
                                             {u.joined}
@@ -255,7 +268,7 @@ export default function UsersPage() {
                                                         <button
                                                             type="button"
                                                             className="btn btn--ghost btn--sm"
-                                                            onClick={() => toast('사용자 편집 패널 준비 중')}
+                                                            onClick={() => setEditing(u)}
                                                         >
                                                             편집
                                                         </button>
@@ -278,6 +291,239 @@ export default function UsersPage() {
                     </table>
                 </div>
             </div>
+            <UserEditDrawer user={editing} onClose={() => setEditing(null)} onSave={saveUser} />
         </div>
+    );
+}
+
+interface UserEditDrawerProps {
+    user: User | null;
+    onClose: () => void;
+    onSave: (email: string, patch: { name: string; role: UserRole; status: UserStatus }) => void;
+}
+
+/**
+ * 우측 슬라이드 편집 패널. `user`가 null이면 닫힌 상태(translateX 100%).
+ *
+ * 닫히는 애니메이션 동안에도 내용이 비지 않도록 `draft`는 새 사용자가 열릴 때만 초기화하고
+ * `user`가 null이 돼도 마지막 값을 유지한다. (NotificationsOverlay 드로어 패턴 계승.)
+ */
+function UserEditDrawer({ user, onClose, onSave }: UserEditDrawerProps) {
+    const open = user != null;
+    // draft는 편집 대상 사용자의 스냅샷. 읽기 전용 필드(email/joined/last)까지 담아두면
+    // 닫히는(translateX) 애니메이션 동안 user가 null이 돼도 패널 내용이 비지 않는다.
+    const [draft, setDraft] = useState<User | null>(null);
+
+    // 새 사용자가 선택돼 열릴 때만 draft를 그 값으로 초기화한다.
+    // `editing` 상태의 객체 참조는 부모 리렌더 동안 안정적이라 편집 중 덮어쓰이지 않는다.
+    useEffect(() => {
+        if (user) setDraft({ ...user });
+    }, [user]);
+
+    // 열린 동안 Escape로 닫고, 배경 스크롤을 잠근다.
+    useEffect(() => {
+        if (!open) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onClose();
+        };
+        document.addEventListener('keydown', onKey);
+        const prev = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => {
+            document.removeEventListener('keydown', onKey);
+            document.body.style.overflow = prev;
+        };
+    }, [open, onClose]);
+
+    const dirty =
+        user != null &&
+        draft != null &&
+        (draft.name.trim() !== user.name || draft.role !== user.role || draft.status !== user.status);
+
+    const submit = () => {
+        if (!draft || !draft.name.trim()) return;
+        onSave(draft.email, { name: draft.name.trim(), role: draft.role, status: draft.status });
+    };
+
+    return (
+        <>
+            <div
+                aria-hidden="true"
+                onClick={onClose}
+                style={{
+                    position: 'fixed',
+                    inset: 0,
+                    background: 'rgba(0,0,0,0.35)',
+                    opacity: open ? 1 : 0,
+                    pointerEvents: open ? 'auto' : 'none',
+                    transition: 'opacity 180ms ease',
+                    zIndex: 59,
+                    backdropFilter: 'blur(2px)',
+                }}
+            />
+            <aside
+                role="dialog"
+                aria-modal="true"
+                aria-label="사용자 편집"
+                aria-hidden={!open}
+                style={{
+                    position: 'fixed',
+                    top: 0,
+                    right: 0,
+                    height: '100dvh',
+                    width: 'min(420px, 100vw)',
+                    background: 'var(--bg-1)',
+                    borderLeft: '1px solid var(--border-default)',
+                    transform: open ? 'translateX(0)' : 'translateX(100%)',
+                    transition: 'transform 220ms ease',
+                    zIndex: 60,
+                    display: 'flex',
+                    flexDirection: 'column',
+                }}
+            >
+                <div
+                    className="between"
+                    style={{ padding: '14px 16px', borderBottom: '1px solid var(--border-subtle)' }}
+                >
+                    <div className="row gap-2">
+                        <Icon name="users" size={16} />
+                        <span style={{ fontWeight: 600 }}>사용자 편집</span>
+                    </div>
+                    <button
+                        type="button"
+                        className="btn btn--ghost btn--icon btn--sm"
+                        onClick={onClose}
+                        aria-label="닫기"
+                    >
+                        <Icon name="x" size={14} />
+                    </button>
+                </div>
+
+                {draft ? (
+                    <>
+                        <div className="col" style={{ flex: 1, overflow: 'auto', padding: 16, gap: 16 }}>
+                            <div className="row gap-3" style={{ alignItems: 'center' }}>
+                                <div
+                                    style={{
+                                        width: 44,
+                                        height: 44,
+                                        borderRadius: '50%',
+                                        background: 'linear-gradient(135deg, var(--accent), var(--brand-2))',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        color: 'var(--accent-fg)',
+                                        fontWeight: 600,
+                                        fontSize: 15,
+                                        flexShrink: 0,
+                                    }}
+                                >
+                                    {draft.name.slice(0, 2)}
+                                </div>
+                                <div className="col" style={{ gap: 2, minWidth: 0 }}>
+                                    <div style={{ fontWeight: 600 }}>{draft.name}</div>
+                                    <div className="mono faint" style={{ fontSize: 12 }}>
+                                        {draft.email}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="field-label">이름</label>
+                                <input
+                                    className="input"
+                                    value={draft.name}
+                                    onChange={(e) => setDraft((d) => (d ? { ...d, name: e.target.value } : d))}
+                                    autoComplete="name"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="field-label">이메일</label>
+                                <input className="input mono" value={draft.email} disabled readOnly />
+                                <div className="faint" style={{ fontSize: 11.5, marginTop: 4 }}>
+                                    이메일은 계정 식별자라 변경할 수 없습니다.
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="field-label">역할</label>
+                                <select
+                                    className="select"
+                                    style={{ width: '100%' }}
+                                    value={draft.role}
+                                    onChange={(e) =>
+                                        setDraft((d) => (d ? { ...d, role: e.target.value as UserRole } : d))
+                                    }
+                                >
+                                    {EDITABLE_USER_ROLES.map((r) => (
+                                        <option key={r} value={r}>
+                                            {USER_ROLE_LABELS[r]}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="field-label">상태</label>
+                                <select
+                                    className="select"
+                                    style={{ width: '100%' }}
+                                    value={draft.status === 'active' ? 'active' : 'inactive'}
+                                    onChange={(e) =>
+                                        setDraft((d) => (d ? { ...d, status: e.target.value as UserStatus } : d))
+                                    }
+                                >
+                                    <option value="active">{USER_STATUS_LABELS.active}</option>
+                                    <option value="inactive">{USER_STATUS_LABELS.inactive}</option>
+                                </select>
+                            </div>
+
+                            <div
+                                className="col gap-2"
+                                style={{
+                                    marginTop: 4,
+                                    padding: 12,
+                                    background: 'var(--bg-2)',
+                                    border: '1px solid var(--border-subtle)',
+                                    borderRadius: 8,
+                                    fontSize: 12,
+                                }}
+                            >
+                                <div className="between">
+                                    <span className="faint">가입일</span>
+                                    <span className="mono tabular">{draft.joined}</span>
+                                </div>
+                                <div className="between">
+                                    <span className="faint">최근 활동</span>
+                                    <span className="faint">{draft.last}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div
+                            className="row gap-2"
+                            style={{
+                                padding: '12px 16px',
+                                borderTop: '1px solid var(--border-subtle)',
+                                justifyContent: 'flex-end',
+                            }}
+                        >
+                            <button type="button" className="btn" onClick={onClose}>
+                                취소
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn--primary"
+                                onClick={submit}
+                                disabled={!dirty || !draft.name.trim()}
+                            >
+                                저장
+                            </button>
+                        </div>
+                    </>
+                ) : null}
+            </aside>
+        </>
     );
 }
