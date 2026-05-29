@@ -1642,6 +1642,7 @@ function RequestSidebar({
                     onSelectAll={onSelectAllScenes}
                     onClear={onClearScenes}
                     analysisType={form.type}
+                    dinsarOverlap={dinsarOverlap}
                     hoveredId={hoveredSceneId}
                     onHover={onHoverScene}
                 />
@@ -1678,45 +1679,6 @@ function RequestSidebar({
                     </span>
                     <span className="faint mono tabular">사용 가능 {availableCount}</span>
                 </div>
-                {dinsarOverlap !== null ? (
-                    (() => {
-                        const pct = Math.round(dinsarOverlap);
-                        const tone =
-                            pct >= 80
-                                ? { color: 'var(--success)', label: '안정' }
-                                : pct >= 70
-                                  ? { color: 'var(--warning)', label: '권장 하한' }
-                                  : { color: 'var(--danger)', label: '낮음' };
-                        return (
-                            <div
-                                className="between"
-                                style={{
-                                    marginBottom: 8,
-                                    padding: '6px 8px',
-                                    fontSize: 11.5,
-                                    background: 'var(--bg-2)',
-                                    border: `1px solid ${tone.color}`,
-                                    borderRadius: 4,
-                                    alignItems: 'center',
-                                }}
-                            >
-                                <span className="row gap-2" style={{ alignItems: 'center' }}>
-                                    <span className="faint">master/slave 겹침</span>
-                                    <span
-                                        className="mono tabular"
-                                        style={{ color: tone.color, fontWeight: 600 }}
-                                    >
-                                        {pct}%
-                                    </span>
-                                    <span style={{ color: tone.color, fontSize: 10.5 }}>
-                                        · {tone.label}
-                                    </span>
-                                </span>
-                                <InfoTip text="DInSAR 권장 겹침: ≥80% 안정 / 70~80% 권장 하한 / <70% 분석 가용 면적이 좁음. 정보용이며 제출은 가능합니다." />
-                            </div>
-                        );
-                    })()
-                ) : null}
                 <div className="row gap-2">
                     <button
                         type="button"
@@ -1787,6 +1749,8 @@ interface ScenePickerInlineProps {
     onSelectAll: () => void;
     onClear: () => void;
     analysisType: AnalysisType;
+    /** DInSAR master/slave 겹침 % — 두 scene 선택 시에만 값. */
+    dinsarOverlap: number | null;
     hoveredId: string | null;
     onHover: (id: string | null) => void;
 }
@@ -1798,6 +1762,7 @@ function ScenePickerInline({
     onSelectAll,
     onClear,
     analysisType,
+    dinsarOverlap,
     hoveredId,
     onHover,
 }: ScenePickerInlineProps) {
@@ -1926,6 +1891,46 @@ function ScenePickerInline({
                         )}
                     </div>
                 ) : null}
+
+                {analysisType === 'DInSAR' && dinsarOverlap !== null
+                    ? (() => {
+                          const pct = Math.round(dinsarOverlap);
+                          const tone =
+                              pct >= 80
+                                  ? { color: 'var(--success)', label: '안정' }
+                                  : pct >= 70
+                                    ? { color: 'var(--warning)', label: '권장 하한' }
+                                    : { color: 'var(--danger)', label: '낮음' };
+                          return (
+                              <div
+                                  className="between"
+                                  style={{
+                                      marginTop: 6,
+                                      padding: '5px 7px',
+                                      fontSize: 11,
+                                      background: 'var(--bg-2)',
+                                      border: `1px solid ${tone.color}`,
+                                      borderRadius: 4,
+                                      alignItems: 'center',
+                                  }}
+                              >
+                                  <span className="row gap-2" style={{ alignItems: 'center' }}>
+                                      <span className="faint">master/slave 겹침</span>
+                                      <span
+                                          className="mono tabular"
+                                          style={{ color: tone.color, fontWeight: 600 }}
+                                      >
+                                          {pct}%
+                                      </span>
+                                      <span style={{ color: tone.color, fontSize: 10.5 }}>
+                                          · {tone.label}
+                                      </span>
+                                  </span>
+                                  <InfoTip text="DInSAR 권장 겹침: ≥80% 안정 / 70~80% 권장 하한 / <70% 분석 가용 면적이 좁음. 정보용이며 제출은 가능합니다." />
+                              </div>
+                          );
+                      })()
+                    : null}
             </div>
 
             <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
