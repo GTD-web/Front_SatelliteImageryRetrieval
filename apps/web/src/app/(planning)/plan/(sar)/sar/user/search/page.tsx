@@ -676,17 +676,6 @@ function SearchPageInner() {
                                     </span>
                                 ))}
                             </div>
-                            {filtered.length > 0 ? (
-                                <div
-                                    className="between"
-                                    style={{ marginTop: 8, fontSize: 11.5, color: 'var(--text-tertiary)' }}
-                                >
-                                    <span className="faint">결과 기간</span>
-                                    <span className="mono tabular" style={{ color: 'var(--text-secondary)' }}>
-                                        {resultRange}
-                                    </span>
-                                </div>
-                            ) : null}
                         </div>
 
                         <FilterDivider />
@@ -1142,14 +1131,6 @@ function SearchPageInner() {
                                     onClick={(e) => e.stopPropagation()}
                                     onKeyDown={(e) => e.stopPropagation()}
                                 >
-                                    <input
-                                        className="input input--search"
-                                        placeholder="scene ID 검색…"
-                                        style={{ width: 220, height: 28, fontSize: 12 }}
-                                        value={query}
-                                        onChange={(e) => setQuery(e.target.value)}
-                                        onFocus={() => setResultsOpen(true)}
-                                    />
                                     {checked.size > 0 ? (
                                         <button
                                             type="button"
@@ -1374,6 +1355,8 @@ function SearchPageInner() {
                                             value={`${filtered.length}`}
                                             sub={`${totalGb.toFixed(1)} GB`}
                                         />
+                                        <Sep />
+                                        <CompactStat label="결과 기간" value={resultRange} mono />
                                         <Sep />
                                         <CompactStat
                                             label="NAS 보유"
