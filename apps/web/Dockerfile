@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # ─────────────────────────────────────────────────────────────
-# Sentinel Web (Next.js 15, pnpm monorepo) — production image
+# Sentinel Web (Next.js 16, pnpm monorepo) — production image
 # Outputs a Next.js standalone server on port 3333.
 #
 # Build from the repo root:
