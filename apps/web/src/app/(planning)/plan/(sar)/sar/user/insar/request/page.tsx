@@ -1338,21 +1338,42 @@ function RequestSidebar({
                     </div>
                 </Section>
 
-                <Section title="분석 이름">
-                    <input
-                        className="input"
-                        value={form.name}
-                        placeholder="예: Pohang subsidence 2026Q1"
-                        onChange={(e) => onChangeField('name', e.target.value)}
-                        style={{
-                            width: '100%',
-                            ...(fieldError?.field === 'name'
-                                ? { borderColor: 'var(--danger)' }
-                                : null),
-                        }}
-                    />
-                    <FieldErrorMsg show={fieldError?.field === 'name'} message={fieldError?.message} />
-                </Section>
+                {/* 분석 이름 + 기간 — 선택 시 함께 보이도록 한 행에 나란히 배치 */}
+                <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-subtle)' }}>
+                    <div className="row gap-3" style={{ alignItems: 'flex-start' }}>
+                        <div className="col gap-2" style={{ flex: '1 1 130px', minWidth: 0 }}>
+                            <span style={{ fontSize: 12, fontWeight: 600 }}>분석 이름</span>
+                            <input
+                                className="input"
+                                value={form.name}
+                                placeholder="예: Pohang 2026Q1"
+                                onChange={(e) => onChangeField('name', e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    ...(fieldError?.field === 'name'
+                                        ? { borderColor: 'var(--danger)' }
+                                        : null),
+                                }}
+                            />
+                            <FieldErrorMsg
+                                show={fieldError?.field === 'name'}
+                                message={fieldError?.message}
+                            />
+                        </div>
+                        <div className="col gap-2" style={{ flex: '1 1 175px', minWidth: 0 }}>
+                            <span style={{ fontSize: 12, fontWeight: 600 }}>기간</span>
+                            <DateRangePicker
+                                start={form.startDate}
+                                end={form.endDate}
+                                maxDate={new Date()}
+                                onChange={(s, e) => {
+                                    onChangeField('startDate', s);
+                                    onChangeField('endDate', e);
+                                }}
+                            />
+                        </div>
+                    </div>
+                </div>
 
                 <Section title="AOI (관심 영역)" hint="WGS84 위경도. 지도에서 그리거나 라이브러리에서 불러올 수 있습니다.">
                     <div className="col gap-2">
@@ -1415,18 +1436,6 @@ function RequestSidebar({
                     hint="무거운 처리 전에 coherence·토지피복·경사를 진단하고 방법을 추천합니다."
                 >
                     <AoiAssessPanel form={form} onApplyMethod={onChangeType} />
-                </Section>
-
-                <Section title="기간">
-                    <DateRangePicker
-                        start={form.startDate}
-                        end={form.endDate}
-                        maxDate={new Date()}
-                        onChange={(s, e) => {
-                            onChangeField('startDate', s);
-                            onChangeField('endDate', e);
-                        }}
-                    />
                 </Section>
 
                 <Section title="미션">
