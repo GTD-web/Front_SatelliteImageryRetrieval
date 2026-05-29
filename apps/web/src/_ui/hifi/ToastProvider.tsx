@@ -68,10 +68,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                             (t.exiting ? ' toast--exiting' : '')
                         }
                     >
-                        <div className="toast__text">
-                            {t.title ? <span className="toast__title">{t.title}</span> : null}
-                            {t.title ? <span className="toast__sep">·</span> : null}
-                            <span className="toast__body">{t.message}</span>
+                        <div className="toast__content">
+                            {t.title ? <div className="toast__title">{t.title}</div> : null}
+                            <div className="toast__body">{t.message}</div>
                         </div>
                         <button
                             type="button"
@@ -79,7 +78,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                             onClick={() => dismiss(t.id)}
                             aria-label="닫기"
                         >
-                            <Icon name="x" size={14} />
+                            <Icon name="x" size={15} />
                         </button>
                     </div>
                 ))}
