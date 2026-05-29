@@ -1057,8 +1057,15 @@ function QaSummarySection({ productId }: { productId: string }) {
                     >
                         <Icon name="x" size={12} style={{ color: 'var(--danger)', marginTop: 1, flexShrink: 0 }} />
                         <span style={{ fontSize: 10.5, lineHeight: 1.45, color: 'var(--danger)' }}>
-                            변위 {Math.abs(product.velocityMmYr)}mm/yr 로 크지만 코히런스 붕괴·언랩 오류로 artifact일
-                            가능성이 높습니다. 결과 해석에 주의하세요.
+                            변위 {Math.abs(product.velocityMmYr)}mm/yr 로 크지만 코히런스 붕괴·언랩 오류로{' '}
+                            <InfoTip
+                                trigger="hover"
+                                placement="top"
+                                text="artifact(허상): 실제 지표 변위가 아니라 코히런스 저하·위상 언랩 오류 등 처리 과정에서 생긴 가짜 신호. 진짜 침하/융기로 해석하면 안 됩니다."
+                            >
+                                artifact
+                            </InfoTip>
+                            일 가능성이 높습니다. 결과 해석에 주의하세요.
                         </span>
                     </div>
                 ) : null}

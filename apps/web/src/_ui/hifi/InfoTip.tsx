@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { Icon } from './Icon';
@@ -15,6 +15,11 @@ interface Props {
     style?: React.CSSProperties;
     /** 트리거 방식. 기본 'click' — 클릭으로 열리고 외부 클릭 / Esc 로 닫힘. */
     trigger?: 'click' | 'hover';
+    /**
+     * 트리거로 쓸 내용. 지정하면 info 아이콘 대신 이 내용을 감싸고,
+     * 점선 밑줄 + help 커서로 호버 가능한 용어임을 표시한다. (용어 풀이용)
+     */
+    children?: ReactNode;
 }
 
 interface Coords {
@@ -29,7 +34,8 @@ interface Coords {
 const ENTER_OFFSET = 4;
 const ANIM_MS = 140;
 
-export function InfoTip({ text, size = 13, placement = 'right', style, trigger = 'click' }: Props) {
+export function InfoTip({ text, size = 13, placement = 'right', style, trigger = 'click', children }: Props) {
+    const isTerm = children != null;
     const ref = useRef<HTMLSpanElement | null>(null);
     const popoverRef = useRef<HTMLDivElement | null>(null);
     const [open, setOpen] = useState(false);
@@ -160,17 +166,25 @@ export function InfoTip({ text, size = 13, placement = 'right', style, trigger =
                 {...triggerHandlers}
                 tabIndex={0}
                 role={trigger === 'click' ? 'button' : undefined}
-                aria-label={text}
+                aria-label={isTerm ? undefined : text}
                 aria-expanded={trigger === 'click' ? open : undefined}
                 style={{
-                    display: 'inline-flex',
-                    color: open ? 'var(--accent)' : 'var(--text-tertiary)',
                     cursor: trigger === 'click' ? 'pointer' : 'help',
                     transition: 'color 120ms ease',
+                    ...(isTerm
+                        ? {
+                              // 용어 모드: 주변 텍스트 색을 따르고 점선 밑줄로 호버 가능함을 표시.
+                              textDecoration: 'underline dotted',
+                              textUnderlineOffset: 2,
+                          }
+                        : {
+                              display: 'inline-flex',
+                              color: open ? 'var(--accent)' : 'var(--text-tertiary)',
+                          }),
                     ...style,
                 }}
             >
-                <Icon name="info" size={size} />
+                {isTerm ? children : <Icon name="info" size={size} />}
             </span>
             {mounted && coords && typeof document !== 'undefined'
                 ? createPortal(
