@@ -66,6 +66,12 @@ const ADMIN_ITEMS: NavItem[] = [
     },
     { label: 'Sync', href: `${base}/admin/sync-monitor`, icon: 'refresh', match: (p) => p.includes('/admin/sync-monitor') },
     {
+        label: '분석 품질',
+        href: `${base}/admin/analysis-qa`,
+        icon: 'shield',
+        match: (p) => p.includes('/admin/analysis-qa'),
+    },
+    {
         label: '실패한 다운로드',
         href: `${base}/admin/failed-downloads`,
         icon: 'download',
