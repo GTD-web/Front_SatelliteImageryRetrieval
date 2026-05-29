@@ -352,8 +352,16 @@ function DetailPanel({ detail }: { detail: Detail }) {
                                 큰 변위 — 그러나 결과 신뢰 불가
                             </span>
                             <span className="faint" style={{ fontSize: 11, lineHeight: 1.45 }}>
-                                {Math.abs(p.velocityMmYr)}mm/yr 로 크게 나왔으나 코히런스 붕괴·언랩 오류로
-                                실제 침하가 아닌 artifact일 가능성이 높다. 경보 전 재처리 권장.
+                                {Math.abs(p.velocityMmYr)}mm/yr 로 크게 나왔으나 코히런스 붕괴·언랩 오류로 실제
+                                침하가 아닌{' '}
+                                <InfoTip
+                                    trigger="hover"
+                                    placement="top"
+                                    text="artifact(허상): 실제 지표 변위가 아니라 코히런스 저하·위상 언랩 오류 등 처리 과정에서 생긴 가짜 신호. 진짜 침하/융기로 해석하면 안 됩니다."
+                                >
+                                    artifact
+                                </InfoTip>
+                                일 가능성이 높다. 경보 전 재처리 권장.
                             </span>
                         </div>
                     </div>
