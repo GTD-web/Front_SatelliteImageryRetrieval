@@ -32,6 +32,13 @@ import { LabeledInput, NumberField, Section, typeBadge } from '../_shared';
 
 type AnalysisType = 'DInSAR' | 'PSInSAR' | 'SBAS';
 
+/** 폼 검증 실패 시 어느 입력이 문제인지 + 메시지. 토스트와 인라인 표시에 공용. */
+type FieldErrorKey = 'name' | 'aoi' | 'mission' | 'layers' | 'reference' | 'scenes';
+interface FieldError {
+    field: FieldErrorKey;
+    message: string;
+}
+
 const ANALYSIS_META: Record<
     AnalysisType,
     { label: string; sub: string; minScenes: number; sceneRequirement: string }
@@ -281,6 +288,7 @@ function InsarRequestPageInner() {
     /** MapCanvas 의 fit 트리거 — 변경 시 AOI/풋프린트에 맞춰 줌인 애니메이션. */
     const [fitKey, setFitKey] = useState('init');
     const [submitting, setSubmitting] = useState(false);
+    const [fieldError, setFieldError] = useState<FieldError | null>(null);
     const [activeTool, setActiveTool] = useState<MapTool | undefined>(undefined);
     const [hoveredSceneId, setHoveredSceneId] = useState<string | null>(null);
 
@@ -545,26 +553,50 @@ function InsarRequestPageInner() {
             return { ...f, layers: next };
         });
     };
-    const validateRequest = (): string | null => {
-        if (!request.name.trim()) return '분석 이름을 입력해주세요';
-        if (!requestAoi) return 'AOI 좌표를 확인해주세요 (NW 가 SE 보다 북서쪽이어야 합니다)';
-        if (!request.s1a && !request.s1c) return '미션을 하나 이상 선택해주세요';
-        if (request.layers.size === 0) return '산출 레이어를 하나 이상 선택해주세요';
-        const minSel = ANALYSIS_META[request.type].minScenes;
-        if (selectedSceneIds.size < minSel) {
-            return `${request.type} 는 최소 ${minSel}개 scene 이 필요합니다 (현재 ${selectedSceneIds.size}개)`;
-        }
+    // 폼(메타) 검증 — scene 선택을 제외한 입력값. "이미지 선택" 단계에서 확인.
+    const validateForm = (): FieldError | null => {
+        if (!request.name.trim()) return { field: 'name', message: '분석 이름을 입력해주세요' };
+        if (!requestAoi)
+            return {
+                field: 'aoi',
+                message: 'AOI 좌표를 확인해주세요 (NW 가 SE 보다 북서쪽이어야 합니다)',
+            };
+        if (!request.s1a && !request.s1c) return { field: 'mission', message: '미션을 하나 이상 선택해주세요' };
+        if (request.layers.size === 0)
+            return { field: 'layers', message: '산출 레이어를 하나 이상 선택해주세요' };
         if (request.type === 'PSInSAR' && (!request.referenceLon || !request.referenceLat)) {
-            return 'PSInSAR 는 reference point 가 필요합니다';
+            return { field: 'reference', message: 'PSInSAR 는 reference point 가 필요합니다' };
         }
         return null;
     };
+    // 폼 검증 후 통과하면 true — "이미지 선택" 클릭 시 scene 탭으로 넘어갈지 결정.
+    const proceedToScenes = (): boolean => {
+        const e = validateForm();
+        setFieldError(e);
+        if (e) {
+            toast(e.message, { tone: 'warning', title: '입력 확인' });
+            return false;
+        }
+        return true;
+    };
     const submitRequest = () => {
-        const err = validateRequest();
-        if (err) {
-            toast(err, { tone: 'warning' });
+        const formErr = validateForm();
+        if (formErr) {
+            setFieldError(formErr);
+            toast(formErr.message, { tone: 'warning', title: '입력 확인' });
             return;
         }
+        const minSel = ANALYSIS_META[request.type].minScenes;
+        if (selectedSceneIds.size < minSel) {
+            const e: FieldError = {
+                field: 'scenes',
+                message: `${request.type} 는 최소 ${minSel}개 scene 이 필요합니다 (현재 ${selectedSceneIds.size}개)`,
+            };
+            setFieldError(e);
+            toast(e.message, { tone: 'warning', title: '입력 확인' });
+            return;
+        }
+        setFieldError(null);
         setSubmitting(true);
         window.setTimeout(() => {
             setSubmitting(false);
@@ -579,8 +611,13 @@ function InsarRequestPageInner() {
     const resetRequest = () => {
         setRequest(buildDefaultRequest());
         setSelectedSceneIds(new Set());
+        setFieldError(null);
         toast('요청 폼 초기화됨');
     };
+    // 폼/선택이 바뀌면 인라인 에러 해제 — 사용자가 고치기 시작하면 사라지도록.
+    useEffect(() => {
+        setFieldError(null);
+    }, [request, selectedSceneIds]);
 
     return (
         <div className="col" style={{ flex: 1, minHeight: 0 }}>
@@ -598,6 +635,8 @@ function InsarRequestPageInner() {
                         availableCount={availableScenes.length}
                         submitting={submitting}
                         onSubmit={submitRequest}
+                        onProceedToScenes={proceedToScenes}
+                        fieldError={fieldError}
                         onReset={resetRequest}
                         dinsarOverlap={dinsarOverlap}
                         onAoiHover={(a) => {
@@ -1083,6 +1122,26 @@ function AssessResult({
     );
 }
 
+/** 입력 옆에 뜨는 인라인 검증 에러 메시지. */
+function FieldErrorMsg({ show, message }: { show: boolean; message?: string }) {
+    if (!show) return null;
+    return (
+        <div
+            className="row gap-2"
+            style={{
+                alignItems: 'flex-start',
+                marginTop: 6,
+                fontSize: 11,
+                lineHeight: 1.4,
+                color: 'var(--danger)',
+            }}
+        >
+            <Icon name="info" size={11} style={{ marginTop: 1, flexShrink: 0 }} />
+            <span>{message}</span>
+        </div>
+    );
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // 분석 요청 — 사이드바 (폼 + scene 선택)
 // ────────────────────────────────────────────────────────────────────────────
@@ -1096,6 +1155,10 @@ interface RequestSidebarProps {
     availableCount: number;
     submitting: boolean;
     onSubmit: () => void;
+    /** "이미지 선택" 클릭 시 폼 검증 — 통과하면 true (호출 측이 scene 탭으로 전환). */
+    onProceedToScenes: () => boolean;
+    /** 현재 검증 실패 필드/메시지 — 인라인 표시용. */
+    fieldError: FieldError | null;
     onReset: () => void;
     dinsarOverlap: number | null;
     /** 저장된 AOI 메뉴에서 호버 중인 항목 — 부모가 지도에 미리보기 표시용으로 사용. */
@@ -1121,6 +1184,8 @@ function RequestSidebar({
     availableCount,
     submitting,
     onSubmit,
+    onProceedToScenes,
+    fieldError,
     onReset,
     dinsarOverlap,
     onAoiHover,
@@ -1279,8 +1344,14 @@ function RequestSidebar({
                         value={form.name}
                         placeholder="예: Pohang subsidence 2026Q1"
                         onChange={(e) => onChangeField('name', e.target.value)}
-                        style={{ width: '100%' }}
+                        style={{
+                            width: '100%',
+                            ...(fieldError?.field === 'name'
+                                ? { borderColor: 'var(--danger)' }
+                                : null),
+                        }}
                     />
+                    <FieldErrorMsg show={fieldError?.field === 'name'} message={fieldError?.message} />
                 </Section>
 
                 <Section title="AOI (관심 영역)" hint="WGS84 위경도. 지도에서 그리거나 라이브러리에서 불러올 수 있습니다.">
@@ -1332,6 +1403,10 @@ function RequestSidebar({
                                 onChange={(v) => onChangeField('seLon', v)}
                             />
                         </div>
+                        <FieldErrorMsg
+                            show={fieldError?.field === 'aoi'}
+                            message={fieldError?.message}
+                        />
                     </div>
                 </Section>
 
@@ -1369,6 +1444,7 @@ function RequestSidebar({
                             Sentinel-1C
                         </span>
                     </div>
+                    <FieldErrorMsg show={fieldError?.field === 'mission'} message={fieldError?.message} />
                 </Section>
 
                 <Section title="편광">
@@ -1439,6 +1515,10 @@ function RequestSidebar({
                                     onChange={(v) => onChangeField('referenceLon', v)}
                                 />
                             </div>
+                            <FieldErrorMsg
+                                show={fieldError?.field === 'reference'}
+                                message={fieldError?.message}
+                            />
                             <div className="faint" style={{ fontSize: 11, lineHeight: 1.5 }}>
                                 Reference point 는 변위 0 으로 가정하는 안정 지반 좌표입니다.
                             </div>
@@ -1538,6 +1618,7 @@ function RequestSidebar({
                             );
                         })}
                     </div>
+                    <FieldErrorMsg show={fieldError?.field === 'layers'} message={fieldError?.message} />
                 </Section>
 
             </div>
@@ -1561,6 +1642,7 @@ function RequestSidebar({
                     onSelectAll={onSelectAllScenes}
                     onClear={onClearScenes}
                     analysisType={form.type}
+                    dinsarOverlap={dinsarOverlap}
                     hoveredId={hoveredSceneId}
                     onHover={onHoverScene}
                 />
@@ -1583,52 +1665,20 @@ function RequestSidebar({
                         scene 선택{' '}
                         <span
                             className="mono tabular"
-                            style={{ color: ready ? 'var(--success)' : 'var(--text-secondary)' }}
+                            style={{
+                                color:
+                                    fieldError?.field === 'scenes'
+                                        ? 'var(--danger)'
+                                        : ready
+                                          ? 'var(--success)'
+                                          : 'var(--text-secondary)',
+                            }}
                         >
                             {selectedCount}/{minSel}
                         </span>
                     </span>
                     <span className="faint mono tabular">사용 가능 {availableCount}</span>
                 </div>
-                {dinsarOverlap !== null ? (
-                    (() => {
-                        const pct = Math.round(dinsarOverlap);
-                        const tone =
-                            pct >= 80
-                                ? { color: 'var(--success)', label: '안정' }
-                                : pct >= 70
-                                  ? { color: 'var(--warning)', label: '권장 하한' }
-                                  : { color: 'var(--danger)', label: '낮음' };
-                        return (
-                            <div
-                                className="between"
-                                style={{
-                                    marginBottom: 8,
-                                    padding: '6px 8px',
-                                    fontSize: 11.5,
-                                    background: 'var(--bg-2)',
-                                    border: `1px solid ${tone.color}`,
-                                    borderRadius: 4,
-                                    alignItems: 'center',
-                                }}
-                            >
-                                <span className="row gap-2" style={{ alignItems: 'center' }}>
-                                    <span className="faint">master/slave 겹침</span>
-                                    <span
-                                        className="mono tabular"
-                                        style={{ color: tone.color, fontWeight: 600 }}
-                                    >
-                                        {pct}%
-                                    </span>
-                                    <span style={{ color: tone.color, fontSize: 10.5 }}>
-                                        · {tone.label}
-                                    </span>
-                                </span>
-                                <InfoTip text="DInSAR 권장 겹침: ≥80% 안정 / 70~80% 권장 하한 / <70% 분석 가용 면적이 좁음. 정보용이며 제출은 가능합니다." />
-                            </div>
-                        );
-                    })()
-                ) : null}
                 <div className="row gap-2">
                     <button
                         type="button"
@@ -1638,37 +1688,50 @@ function RequestSidebar({
                     >
                         <Icon name="refresh" size={12} />
                     </button>
-                    <button
-                        type="button"
-                        className="btn btn--primary"
-                        style={{ flex: 1 }}
-                        onClick={onSubmit}
-                        disabled={submitting}
-                    >
-                        {submitting ? (
-                            <>
-                                <span
-                                    aria-hidden
-                                    style={{
-                                        display: 'inline-block',
-                                        width: 12,
-                                        height: 12,
-                                        borderRadius: '50%',
-                                        border: '2px solid currentColor',
-                                        borderTopColor: 'transparent',
-                                        animation: 'spin 0.8s linear infinite',
-                                        marginRight: 6,
-                                        verticalAlign: '-2px',
-                                    }}
-                                />
-                                요청 접수 중…
-                            </>
-                        ) : (
-                            <>
-                                <Icon name="plus" size={13} /> 분석 요청
-                            </>
-                        )}
-                    </button>
+                    {sidebarTab === 'options' ? (
+                        <button
+                            type="button"
+                            className="btn btn--primary"
+                            style={{ flex: 1 }}
+                            onClick={() => {
+                                if (onProceedToScenes()) setSidebarTab('scenes');
+                            }}
+                        >
+                            <Icon name="layers" size={13} /> 이미지 선택
+                        </button>
+                    ) : (
+                        <button
+                            type="button"
+                            className="btn btn--primary"
+                            style={{ flex: 1 }}
+                            onClick={onSubmit}
+                            disabled={submitting}
+                        >
+                            {submitting ? (
+                                <>
+                                    <span
+                                        aria-hidden
+                                        style={{
+                                            display: 'inline-block',
+                                            width: 12,
+                                            height: 12,
+                                            borderRadius: '50%',
+                                            border: '2px solid currentColor',
+                                            borderTopColor: 'transparent',
+                                            animation: 'spin 0.8s linear infinite',
+                                            marginRight: 6,
+                                            verticalAlign: '-2px',
+                                        }}
+                                    />
+                                    요청 접수 중…
+                                </>
+                            ) : (
+                                <>
+                                    <Icon name="plus" size={13} /> 분석 요청
+                                </>
+                            )}
+                        </button>
+                    )}
                 </div>
             </div>
         </>
@@ -1686,6 +1749,8 @@ interface ScenePickerInlineProps {
     onSelectAll: () => void;
     onClear: () => void;
     analysisType: AnalysisType;
+    /** DInSAR master/slave 겹침 % — 두 scene 선택 시에만 값. */
+    dinsarOverlap: number | null;
     hoveredId: string | null;
     onHover: (id: string | null) => void;
 }
@@ -1697,6 +1762,7 @@ function ScenePickerInline({
     onSelectAll,
     onClear,
     analysisType,
+    dinsarOverlap,
     hoveredId,
     onHover,
 }: ScenePickerInlineProps) {
@@ -1825,6 +1891,46 @@ function ScenePickerInline({
                         )}
                     </div>
                 ) : null}
+
+                {analysisType === 'DInSAR' && dinsarOverlap !== null
+                    ? (() => {
+                          const pct = Math.round(dinsarOverlap);
+                          const tone =
+                              pct >= 80
+                                  ? { color: 'var(--success)', label: '안정' }
+                                  : pct >= 70
+                                    ? { color: 'var(--warning)', label: '권장 하한' }
+                                    : { color: 'var(--danger)', label: '낮음' };
+                          return (
+                              <div
+                                  className="between"
+                                  style={{
+                                      marginTop: 6,
+                                      padding: '5px 7px',
+                                      fontSize: 11,
+                                      background: 'var(--bg-2)',
+                                      border: `1px solid ${tone.color}`,
+                                      borderRadius: 4,
+                                      alignItems: 'center',
+                                  }}
+                              >
+                                  <span className="row gap-2" style={{ alignItems: 'center' }}>
+                                      <span className="faint">master/slave 겹침</span>
+                                      <span
+                                          className="mono tabular"
+                                          style={{ color: tone.color, fontWeight: 600 }}
+                                      >
+                                          {pct}%
+                                      </span>
+                                      <span style={{ color: tone.color, fontSize: 10.5 }}>
+                                          · {tone.label}
+                                      </span>
+                                  </span>
+                                  <InfoTip text="DInSAR 권장 겹침: ≥80% 안정 / 70~80% 권장 하한 / <70% 분석 가용 면적이 좁음. 정보용이며 제출은 가능합니다." />
+                              </div>
+                          );
+                      })()
+                    : null}
             </div>
 
             <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
