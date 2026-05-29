@@ -1,9 +1,10 @@
+/* @import 규칙은 다른 모든 규칙보다 앞에 와야 한다 (CSS 스펙 · Turbopack 엄격 적용). */
+@import 'ol/ol.css';
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-@import 'ol/ol.css';
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 /* ═══════════════════════════════════════════════════════════════
    위성검색 하이파이 · 디자인 토큰
