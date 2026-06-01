@@ -262,12 +262,29 @@ function generateAvailableScenes(form: RequestForm): AvailableScene[] {
 }
 
 /**
- * SBAS/PSInSAR opt-out 모델의 "불량일" 판정 — |perpendicular baseline| 이 임계를 넘으면
- * 기하 디코릴레이션 위험이 커 자동 제외 후보로 본다. (처리 전 알 수 있는 거의 유일한 품질 프록시)
+ * SBAS/PSInSAR opt-out 모델의 "불량일" 판정 임계 (기준 대비 |B⊥|, m).
+ * 넘으면 기하 디코릴레이션 위험이 커 자동 제외 후보로 본다.
  */
 const PERP_WARN_M = 150;
-function isLowQualityScene(s: AvailableScene): boolean {
-    return Math.abs(s.perpBaseline) > PERP_WARN_M;
+
+/** 기준(super-master) scene 대비 perpendicular baseline (m). 기준 자신은 0. */
+function relPerpBaseline(s: AvailableScene, refPerp: number): number {
+    return s.perpBaseline - refPerp;
+}
+
+/** 기준 대비 |B⊥| 가 임계를 넘으면 불량일(기하 디코릴레이션 위험). */
+function isLowQualityScene(s: AvailableScene, refPerp: number): boolean {
+    return Math.abs(relPerpBaseline(s, refPerp)) > PERP_WARN_M;
+}
+
+/**
+ * 스택의 기준(super-master) scene id — 기준 대비 |B⊥| 분산을 최소화하도록 perpBaseline 중앙값 scene 선택.
+ * 실제 백엔드(GET /api/v1/baseline)에서는 정밀궤도 기반으로 기준·상대 B⊥ 를 계산해 내려준다.
+ */
+function pickReferenceSceneId(scenes: AvailableScene[]): string | null {
+    if (scenes.length === 0) return null;
+    const sorted = [...scenes].sort((a, b) => a.perpBaseline - b.perpBaseline);
+    return sorted[Math.floor(sorted.length / 2)]!.id;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -381,6 +398,13 @@ function InsarRequestPageInner() {
         setSelectedSceneIds(new Set(availableScenes.map((s) => s.id)));
     }, [request.type, availableScenes]);
 
+    // 스택(SBAS/PSInSAR)의 기준 scene — 각 scene 의 B⊥ 는 이 기준 대비로 계산/표시한다.
+    // (DInSAR 은 페어의 master 가 곧 기준이라 스택 기준이 없다.)
+    const referenceSceneId = useMemo(
+        () => (request.type === 'DInSAR' ? null : pickReferenceSceneId(availableScenes)),
+        [request.type, availableScenes],
+    );
+
     // DInSAR 모드 + 2개 선택 시 master/slave 풋프린트 겹침 비율 (정보용).
     const dinsarOverlap = useMemo<number | null>(() => {
         if (request.type !== 'DInSAR') return null;
@@ -432,9 +456,10 @@ function InsarRequestPageInner() {
         toast(`${availableScenes.length}개 scene 모두 선택`, { tone: 'success' });
     };
 
-    // SBAS/PSInSAR opt-out — |B⊥| 가 큰 불량일을 스택에서 일괄 제외.
+    // SBAS/PSInSAR opt-out — 기준 대비 |B⊥| 가 큰 불량일을 스택에서 일괄 제외.
     const autoExcludeLowQuality = () => {
-        const keep = availableScenes.filter((s) => !isLowQualityScene(s));
+        const refPerp = availableScenes.find((s) => s.id === referenceSceneId)?.perpBaseline ?? 0;
+        const keep = availableScenes.filter((s) => !isLowQualityScene(s, refPerp));
         const removed = availableScenes.length - keep.length;
         setSelectedSceneIds(new Set(keep.map((s) => s.id)));
         if (removed > 0) {
@@ -691,6 +716,7 @@ function InsarRequestPageInner() {
                         onSelectAllScenes={selectAllScenes}
                         onClearScenes={clearSelectedScenes}
                         onAutoExcludeScenes={autoExcludeLowQuality}
+                        referenceSceneId={referenceSceneId}
                         hoveredSceneId={hoveredSceneId}
                         onHoverScene={setHoveredSceneId}
                     />
@@ -1203,6 +1229,8 @@ interface RequestSidebarProps {
     onSelectAllScenes: () => void;
     onClearScenes: () => void;
     onAutoExcludeScenes: () => void;
+    /** 스택 기준(super-master) scene id — 각 scene B⊥ 를 이 기준 대비로 표시. DInSAR 은 null. */
+    referenceSceneId: string | null;
     hoveredSceneId: string | null;
     onHoverScene: (id: string | null) => void;
 }
@@ -1228,6 +1256,7 @@ function RequestSidebar({
     onSelectAllScenes,
     onClearScenes,
     onAutoExcludeScenes,
+    referenceSceneId,
     hoveredSceneId,
     onHoverScene,
 }: RequestSidebarProps) {
@@ -1686,6 +1715,7 @@ function RequestSidebar({
                     onSelectAll={onSelectAllScenes}
                     onClear={onClearScenes}
                     onAutoExclude={onAutoExcludeScenes}
+                    referenceId={referenceSceneId}
                     analysisType={form.type}
                     dinsarOverlap={dinsarOverlap}
                     hoveredId={hoveredSceneId}
@@ -1793,8 +1823,10 @@ interface ScenePickerInlineProps {
     onToggle: (id: string) => void;
     onSelectAll: () => void;
     onClear: () => void;
-    /** SBAS/PSInSAR — |B⊥| 큰 불량일 일괄 제외(opt-out). */
+    /** SBAS/PSInSAR — 기준 대비 |B⊥| 큰 불량일 일괄 제외(opt-out). */
     onAutoExclude: () => void;
+    /** 스택 기준(super-master) scene id — 각 행 B⊥ 를 이 기준 대비로 표시. DInSAR 은 null. */
+    referenceId: string | null;
     analysisType: AnalysisType;
     /** DInSAR master/slave 겹침 % — 두 scene 선택 시에만 값. */
     dinsarOverlap: number | null;
@@ -1809,6 +1841,7 @@ function ScenePickerInline({
     onSelectAll,
     onClear,
     onAutoExclude,
+    referenceId,
     analysisType,
     dinsarOverlap,
     hoveredId,
@@ -1820,6 +1853,13 @@ function ScenePickerInline({
         analysisType === 'DInSAR'
             ? selected.size === 2 && scenes.length >= 2
             : scenes.length > 0 && selected.size >= scenes.length;
+
+    // 스택 기준 scene 과 그 perpBaseline — 각 scene B⊥ 는 이 값 대비로 계산한다.
+    const referenceScene = useMemo(
+        () => scenes.find((s) => s.id === referenceId) ?? null,
+        [scenes, referenceId],
+    );
+    const refPerp = referenceScene?.perpBaseline ?? 0;
 
     // 선택된 scene 들의 baseline 통계.
     const baselineSummary = useMemo(() => {
@@ -1833,14 +1873,17 @@ function ScenePickerInline({
             const t1 = new Date(picks[1]!.isoDate).getTime();
             const days = Math.round(Math.abs(t1 - t0) / (24 * 60 * 60 * 1000));
             const quality = days <= 24 ? 'good' : 'caution';
-            return { mode: 'pair' as const, days, quality };
+            // DInSAR 은 master 가 곧 기준 — 페어 B⊥ = 두 scene perpBaseline 차이.
+            const perp = Math.abs(picks[0]!.perpBaseline - picks[1]!.perpBaseline);
+            return { mode: 'pair' as const, days, quality, perp };
         }
-        const abs = picks.map((s) => Math.abs(s.perpBaseline));
+        // 스택: 각 scene 의 기준 대비 |B⊥| 분포.
+        const abs = picks.map((s) => Math.abs(relPerpBaseline(s, refPerp)));
         const min = Math.min(...abs);
         const max = Math.max(...abs);
         const mean = Math.round(abs.reduce((s, v) => s + v, 0) / abs.length);
         return { mode: 'stack' as const, min, max, mean };
-    }, [selected, scenes, analysisType]);
+    }, [selected, scenes, analysisType, refPerp]);
 
     return (
         <div
@@ -1896,6 +1939,15 @@ function ScenePickerInline({
                                   : ''
                           }`}
                 </div>
+                {analysisType !== 'DInSAR' && referenceScene ? (
+                    <div className="faint" style={{ fontSize: 10, marginTop: 3, lineHeight: 1.4 }}>
+                        기준 scene{' '}
+                        <span className="mono tabular" style={{ color: 'var(--text-secondary)' }}>
+                            {referenceScene.date}
+                        </span>{' '}
+                        · 각 ⊥ 는 기준 대비 (실제 B⊥ 는 백엔드 궤도 계산)
+                    </div>
+                ) : null}
 
                 {baselineSummary ? (
                     <div
@@ -1929,11 +1981,14 @@ function ScenePickerInline({
                                     {baselineSummary.quality === 'good'
                                         ? 'coherence 양호'
                                         : 'coherence 주의'}
+                                </span>{' '}
+                                <span style={{ color: 'var(--text-tertiary)' }}>
+                                    · B⊥ {baselineSummary.perp}m
                                 </span>
                             </>
                         ) : (
                             <>
-                                <span style={{ color: 'var(--text-tertiary)' }}>스택 |B⊥|</span>{' '}
+                                <span style={{ color: 'var(--text-tertiary)' }}>기준 대비 |B⊥|</span>{' '}
                                 min {baselineSummary.min} · mean {baselineSummary.mean} · max{' '}
                                 {baselineSummary.max} m
                             </>
@@ -1992,16 +2047,21 @@ function ScenePickerInline({
                         const isDinsar = analysisType === 'DInSAR';
                         const isSel = selected.has(s.id);
                         const isHov = hoveredId === s.id;
+                        const isRef = !isDinsar && s.id === referenceId;
                         // 순서 칩은 DInSAR(master/slave) 에서만 의미가 있다.
                         const order = isDinsar && isSel ? Array.from(selected).indexOf(s.id) + 1 : null;
                         // opt-out: SBAS/PSInSAR 은 미선택 = 스택에서 제외된 날짜.
                         const excluded = !isDinsar && !isSel;
-                        const lowQ = isLowQualityScene(s);
+                        // 기준 대비 B⊥ (스택). DInSAR 은 기준이 없어 행에 표시하지 않는다.
+                        const relPerp = relPerpBaseline(s, refPerp);
+                        const lowQ = !isDinsar && isLowQualityScene(s, refPerp);
                         const missionColor = s.mission === 'S1A' ? '#22d3ee' : '#a855f7';
+                        // 기준 scene 은 스택에서 항상 포함 — 제외 토글을 막는다.
+                        const toggle = isRef ? undefined : () => onToggle(s.id);
                         return (
                             <div
                                 key={s.id}
-                                onClick={() => onToggle(s.id)}
+                                onClick={toggle}
                                 onMouseEnter={() => onHover(s.id)}
                                 onMouseLeave={() => onHover(null)}
                                 style={{
@@ -2017,7 +2077,7 @@ function ScenePickerInline({
                                         ? '3px solid var(--accent)'
                                         : '3px solid transparent',
                                     opacity: excluded ? 0.45 : 1,
-                                    cursor: 'pointer',
+                                    cursor: isRef ? 'default' : 'pointer',
                                     display: 'flex',
                                     alignItems: 'center',
                                     gap: 8,
@@ -2027,7 +2087,8 @@ function ScenePickerInline({
                                     type="checkbox"
                                     className="checkbox"
                                     checked={isSel}
-                                    onChange={() => onToggle(s.id)}
+                                    disabled={isRef}
+                                    onChange={() => toggle?.()}
                                     onClick={(e) => e.stopPropagation()}
                                     style={{ flexShrink: 0 }}
                                 />
@@ -2080,35 +2141,59 @@ function ScenePickerInline({
                                         >
                                             {s.date}
                                         </span>
-                                        {lowQ ? (
-                                            <span
-                                                title={`|B⊥| ${Math.abs(s.perpBaseline)}m > ${PERP_WARN_M}m — 기하 디코릴레이션 위험`}
-                                                style={{
-                                                    fontSize: 9,
-                                                    padding: '0 4px',
-                                                    height: 14,
-                                                    lineHeight: '13px',
-                                                    borderRadius: 3,
-                                                    background: 'var(--warning-soft)',
-                                                    color: 'var(--warning)',
-                                                    fontWeight: 700,
-                                                }}
-                                            >
-                                                주의
-                                            </span>
-                                        ) : null}
                                         <span
-                                            className="mono tabular"
-                                            title="perpendicular baseline — 작을수록 coherence 양호"
-                                            style={{
-                                                fontSize: 10,
-                                                marginLeft: 'auto',
-                                                color: lowQ ? 'var(--warning)' : 'var(--text-tertiary)',
-                                                fontWeight: lowQ ? 600 : 400,
-                                            }}
+                                            className="row gap-1"
+                                            style={{ marginLeft: 'auto', alignItems: 'center', flexShrink: 0 }}
                                         >
-                                            ⊥{s.perpBaseline >= 0 ? '+' : ''}
-                                            {s.perpBaseline}m
+                                            {isRef ? (
+                                                <span
+                                                    title="스택 기준(super-master) scene — B⊥ 0m, 항상 포함"
+                                                    style={{
+                                                        fontSize: 9,
+                                                        padding: '0 4px',
+                                                        height: 14,
+                                                        lineHeight: '13px',
+                                                        borderRadius: 3,
+                                                        background: 'var(--accent-soft)',
+                                                        color: 'var(--accent)',
+                                                        border: '1px solid var(--accent-border)',
+                                                        fontWeight: 700,
+                                                    }}
+                                                >
+                                                    기준
+                                                </span>
+                                            ) : null}
+                                            {lowQ ? (
+                                                <span
+                                                    title={`기준 대비 |B⊥| ${Math.abs(relPerp)}m > ${PERP_WARN_M}m — 기하 디코릴레이션 위험`}
+                                                    style={{
+                                                        fontSize: 9,
+                                                        padding: '0 4px',
+                                                        height: 14,
+                                                        lineHeight: '13px',
+                                                        borderRadius: 3,
+                                                        background: 'var(--warning-soft)',
+                                                        color: 'var(--warning)',
+                                                        fontWeight: 700,
+                                                    }}
+                                                >
+                                                    주의
+                                                </span>
+                                            ) : null}
+                                            {!isDinsar ? (
+                                                <span
+                                                    className="mono tabular"
+                                                    title="기준 scene 대비 perpendicular baseline — 0 에 가까울수록 coherence 양호"
+                                                    style={{
+                                                        fontSize: 10,
+                                                        color: lowQ ? 'var(--warning)' : 'var(--text-tertiary)',
+                                                        fontWeight: lowQ ? 600 : 400,
+                                                    }}
+                                                >
+                                                    ⊥{relPerp >= 0 ? '+' : ''}
+                                                    {relPerp}m
+                                                </span>
+                                            ) : null}
                                         </span>
                                     </div>
                                     <div
@@ -2170,7 +2255,7 @@ function ScenePickerInline({
                         onClick={onAutoExclude}
                         disabled={scenes.length === 0}
                         style={{ flex: '0 0 auto' }}
-                        title={`|B⊥| > ${PERP_WARN_M}m 인 날짜를 스택에서 자동 제외`}
+                        title={`기준 대비 |B⊥| > ${PERP_WARN_M}m 인 날짜를 스택에서 자동 제외`}
                     >
                         불량일 제외
                     </button>
