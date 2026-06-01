@@ -1338,10 +1338,10 @@ function RequestSidebar({
                     </div>
                 </Section>
 
-                {/* 분석 이름 + 기간 — 선택 시 함께 보이도록 한 행에 나란히 배치 */}
+                {/* 분석 이름 / 기간 — 각각 한 행씩 세로로 구분 */}
                 <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-subtle)' }}>
-                    <div className="row gap-3" style={{ alignItems: 'flex-start' }}>
-                        <div className="col gap-2" style={{ flex: '1 1 130px', minWidth: 0 }}>
+                    <div className="col gap-3">
+                        <div className="col gap-2" style={{ minWidth: 0 }}>
                             <span style={{ fontSize: 12, fontWeight: 600 }}>분석 이름</span>
                             <input
                                 className="input"
@@ -1360,7 +1360,7 @@ function RequestSidebar({
                                 message={fieldError?.message}
                             />
                         </div>
-                        <div className="col gap-2" style={{ flex: '1 1 175px', minWidth: 0 }}>
+                        <div className="col gap-2" style={{ minWidth: 0 }}>
                             <span style={{ fontSize: 12, fontWeight: 600 }}>기간</span>
                             <DateRangePicker
                                 start={form.startDate}
