@@ -831,14 +831,7 @@ function InsarRequestPageInner() {
 // AOI 사전 점검 패널 (P0) — 품질 진단 + 방법 추천
 // ────────────────────────────────────────────────────────────────────────────
 
-function AoiAssessPanel({
-    form,
-    onApplyMethod,
-}: {
-    form: RequestForm;
-    onApplyMethod: (t: AnalysisType) => void;
-}) {
-    const toast = useToast();
+function AoiAssessPanel({ form }: { form: RequestForm }) {
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState<AoiAssessment | null>(null);
     const timerRef = useRef<number | null>(null);
@@ -914,26 +907,12 @@ function AoiAssessPanel({
                     유효한 AOI 를 먼저 지정하세요.
                 </span>
             ) : null}
-            {result ? (
-                <AssessResult
-                    result={result}
-                    onApplyMethod={(t) => {
-                        onApplyMethod(t);
-                        toast(`추천 방법 ${t} 을(를) 적용했습니다`, { tone: 'success' });
-                    }}
-                />
-            ) : null}
+            {result ? <AssessResult result={result} /> : null}
         </div>
     );
 }
 
-function AssessResult({
-    result,
-    onApplyMethod,
-}: {
-    result: AoiAssessment;
-    onApplyMethod: (t: AnalysisType) => void;
-}) {
+function AssessResult({ result }: { result: AoiAssessment }) {
     const q = QUALITY_META[result.quality];
     const pct = (v: number) => Math.round(v * 100);
     const covers: LandcoverKey[] = ['urban', 'forest', 'farmland', 'water'];
@@ -1043,81 +1022,6 @@ function AssessResult({
                     ))}
                 </div>
             ) : null}
-
-            {/* 방법 추천 */}
-            <div
-                className="col gap-2"
-                style={{
-                    padding: '8px 10px',
-                    border: '1px solid var(--accent-border)',
-                    borderRadius: 6,
-                    background: 'var(--accent-soft)',
-                }}
-            >
-                <div className="between" style={{ alignItems: 'center' }}>
-                    <span className="row gap-2" style={{ alignItems: 'center' }}>
-                        <span className="faint" style={{ fontSize: 11 }}>
-                            추천 방법
-                        </span>
-                        <span className={`badge ${typeBadge(result.primaryMethod)}`} style={{ fontSize: 10 }}>
-                            {result.primaryMethod}
-                        </span>
-                    </span>
-                    <button
-                        type="button"
-                        className="btn btn--primary btn--sm"
-                        onClick={() => onApplyMethod(result.primaryMethod)}
-                    >
-                        이 방법 적용
-                    </button>
-                </div>
-                <span className="faint" style={{ fontSize: 10.5, lineHeight: 1.45 }}>
-                    {result.primaryRationale}
-                </span>
-            </div>
-
-            {/* 토지피복별 권장 방법 */}
-            <div className="col gap-1">
-                <span className="faint" style={{ fontSize: 11 }}>
-                    영역별 권장
-                </span>
-                {result.segments.map((s) => {
-                    const eq = QUALITY_META[s.estQuality];
-                    return (
-                        <div
-                            key={s.cover}
-                            className="between"
-                            style={{ fontSize: 10.5, padding: '3px 0', alignItems: 'center', gap: 8 }}
-                        >
-                            <span className="row gap-2" style={{ alignItems: 'center', minWidth: 0 }}>
-                                <span
-                                    style={{
-                                        width: 8,
-                                        height: 8,
-                                        borderRadius: 2,
-                                        background: LANDCOVER_META[s.cover].color,
-                                        flexShrink: 0,
-                                    }}
-                                />
-                                <span style={{ fontWeight: 600 }}>{s.region}</span>
-                                <span className="faint mono tabular">{pct(s.fraction)}%</span>
-                            </span>
-                            <span
-                                className="row gap-2"
-                                style={{ alignItems: 'center', textAlign: 'right', flexShrink: 0 }}
-                            >
-                                <span style={{ color: 'var(--text-secondary)' }}>{s.methodLabel}</span>
-                                <span style={{ color: eq.color, fontWeight: 600 }}>{eq.label}</span>
-                            </span>
-                        </div>
-                    );
-                })}
-            </div>
-
-            {/* 통째 처리 + masking 안내 */}
-            <span className="faint" style={{ fontSize: 10, lineHeight: 1.4 }}>
-                {result.maskNote}
-            </span>
         </div>
     );
 }
@@ -1435,7 +1339,7 @@ function RequestSidebar({
                     title="AOI 사전 점검"
                     hint="무거운 처리 전에 coherence·토지피복·경사를 진단하고 방법을 추천합니다."
                 >
-                    <AoiAssessPanel form={form} onApplyMethod={onChangeType} />
+                    <AoiAssessPanel form={form} />
                 </Section>
 
                 <Section title="미션">
@@ -1787,15 +1691,16 @@ function ScenePickerInline({
         if (selected.size < 2) return null;
         const picks = scenes.filter((s) => selected.has(s.id));
         if (picks.length < 2) return null;
-        const perps = picks.map((s) => s.perpBaseline);
         if (analysisType === 'DInSAR' && picks.length === 2) {
-            const a = perps[0]!;
-            const b = perps[1]!;
-            const pair = Math.abs(a - b);
-            const quality = pair < 150 ? 'good' : pair < 250 ? 'marginal' : 'poor';
-            return { mode: 'pair' as const, pair, quality };
+            // 처리 전이라 실측 coherence 는 알 수 없음 — 두 scene 의 시간 간격(temporal baseline)으로만
+            // 가늠한다. Sentinel-1 재방문 12일, 2주기 24일까지는 양호로 본다.
+            const t0 = new Date(picks[0]!.isoDate).getTime();
+            const t1 = new Date(picks[1]!.isoDate).getTime();
+            const days = Math.round(Math.abs(t1 - t0) / (24 * 60 * 60 * 1000));
+            const quality = days <= 24 ? 'good' : 'caution';
+            return { mode: 'pair' as const, days, quality };
         }
-        const abs = perps.map((p) => Math.abs(p));
+        const abs = picks.map((s) => Math.abs(s.perpBaseline));
         const min = Math.min(...abs);
         const max = Math.max(...abs);
         const mean = Math.round(abs.reduce((s, v) => s + v, 0) / abs.length);
@@ -1868,27 +1773,23 @@ function ScenePickerInline({
                     >
                         {baselineSummary.mode === 'pair' ? (
                             <>
-                                <span style={{ color: 'var(--text-tertiary)' }}>페어 B⊥</span>{' '}
+                                <span style={{ color: 'var(--text-tertiary)' }}>시간 간격</span>{' '}
                                 <span
                                     style={{
                                         fontWeight: 700,
                                         color:
                                             baselineSummary.quality === 'good'
                                                 ? 'var(--success)'
-                                                : baselineSummary.quality === 'marginal'
-                                                  ? 'var(--warning)'
-                                                  : 'var(--danger)',
+                                                : 'var(--warning)',
                                     }}
                                 >
-                                    {baselineSummary.pair} m
+                                    {baselineSummary.days}일
                                 </span>{' '}
                                 <span style={{ color: 'var(--text-tertiary)' }}>
                                     ·{' '}
                                     {baselineSummary.quality === 'good'
                                         ? 'coherence 양호'
-                                        : baselineSummary.quality === 'marginal'
-                                          ? 'coherence 경계'
-                                          : 'coherence 위험'}
+                                        : 'coherence 주의'}
                                 </span>
                             </>
                         ) : (
