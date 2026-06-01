@@ -80,6 +80,8 @@ interface RequestForm {
     temporalBaselineMaxDays: number;
     spatialBaselineMaxM: number;
     minScenes: number;
+    /** PSInSAR reference point 선택 방식 — 자동(가장 안정한 PS) vs 직접 좌표 입력. */
+    referenceMode: 'auto' | 'manual';
     referenceLon: string;
     referenceLat: string;
 }
@@ -106,9 +108,58 @@ function buildDefaultRequest(): RequestForm {
         temporalBaselineMaxDays: 60,
         spatialBaselineMaxM: 200,
         minScenes: 20,
+        referenceMode: 'auto',
         referenceLon: '',
         referenceLat: '',
     };
+}
+
+// 산출 레이어 미리보기 — 각 산출물의 대표 색상표/패턴을 CSS 그라디언트로 표현(외부 이미지 의존 없음).
+const LAYER_PREVIEW: Record<string, { bg: string; alt: string }> = {
+    mean_velocity: {
+        bg:
+            'radial-gradient(circle at 68% 64%, #b2182b 0%, rgba(178,24,43,0) 52%), ' +
+            'radial-gradient(circle at 28% 36%, #2166ac 0%, rgba(33,102,172,0) 55%), ' +
+            'linear-gradient(90deg, #4393c3, #f7f7f7, #d6604d)',
+        alt: '평균 속도 (mm/yr) — RdBu 발산형: 적=융기/접근, 청=침하/이격',
+    },
+    coherence: {
+        bg:
+            'repeating-linear-gradient(118deg, rgba(255,255,255,0.07) 0 1.5px, transparent 1.5px 4px), ' +
+            'linear-gradient(90deg, #440154, #3b528b, #21908d, #5dc863, #fde725)',
+        alt: 'coherence (0–1) — viridis: 밝을수록 신뢰 높음',
+    },
+    cumulative_disp: {
+        bg:
+            'radial-gradient(ellipse at 50% 62%, #313695 0%, #4575b4 22%, #91bfdb 42%, #fee090 68%, #f46d43 86%, #a50026 100%)',
+        alt: '누적 변위 (mm) — spectral, 변형 bowl 형상',
+    },
+    wrapped_phase: {
+        bg:
+            'repeating-linear-gradient(45deg, #ff3b3b 0 5px, #ffd23b 5px 10px, #3bff6b 10px 15px, #3bd0ff 15px 20px, #6b3bff 20px 25px, #ff3bd0 25px 30px)',
+        alt: 'wrapped phase (rad) — -π~π 순환 fringe 패턴',
+    },
+};
+
+/** 산출 레이어 썸네일 — 대표 색상표/패턴 미리보기. */
+function LayerPreview({ layerKey }: { layerKey: string }) {
+    const p = LAYER_PREVIEW[layerKey];
+    if (!p) return null;
+    return (
+        <span
+            aria-label={p.alt}
+            title={p.alt}
+            style={{
+                flexShrink: 0,
+                width: 40,
+                height: 24,
+                borderRadius: 4,
+                background: p.bg,
+                border: '1px solid var(--border-default)',
+                boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.18)',
+            }}
+        />
+    );
 }
 
 function parseAoiFromForm(f: RequestForm): Array<[number, number]> | null {
@@ -621,8 +672,12 @@ function InsarRequestPageInner() {
         if (!request.s1a && !request.s1c) return { field: 'mission', message: '미션을 하나 이상 선택해주세요' };
         if (request.layers.size === 0)
             return { field: 'layers', message: '산출 레이어를 하나 이상 선택해주세요' };
-        if (request.type === 'PSInSAR' && (!request.referenceLon || !request.referenceLat)) {
-            return { field: 'reference', message: 'PSInSAR 는 reference point 가 필요합니다' };
+        if (
+            request.type === 'PSInSAR' &&
+            request.referenceMode === 'manual' &&
+            (!request.referenceLon || !request.referenceLat)
+        ) {
+            return { field: 'reference', message: '직접 입력 모드에서는 reference point 좌표가 필요합니다' };
         }
         return null;
     };
@@ -1575,24 +1630,50 @@ function RequestSidebar({
                                 hint="0.7 권장"
                                 info="PS 후보 식별에 쓰이는 진폭 분산 / 시간 코히어런스 임계값. 보통 0.7 이상을 사용해 안정한 점만 남깁니다."
                             />
-                            <div className="row gap-2">
-                                <LabeledInput
-                                    label="reference lat"
-                                    value={form.referenceLat}
-                                    onChange={(v) => onChangeField('referenceLat', v)}
-                                />
-                                <LabeledInput
-                                    label="reference lon"
-                                    value={form.referenceLon}
-                                    onChange={(v) => onChangeField('referenceLon', v)}
-                                />
-                            </div>
-                            <FieldErrorMsg
-                                show={fieldError?.field === 'reference'}
-                                message={fieldError?.message}
-                            />
-                            <div className="faint" style={{ fontSize: 11, lineHeight: 1.5 }}>
-                                Reference point 는 변위 0 으로 가정하는 안정 지반 좌표입니다.
+                            <div className="col gap-2">
+                                <span style={{ fontSize: 12, fontWeight: 600 }}>Reference point</span>
+                                <div className="row gap-1" style={{ flexWrap: 'wrap' }}>
+                                    <span
+                                        className={`chip${form.referenceMode === 'auto' ? ' chip--active' : ''}`}
+                                        onClick={() => onChangeField('referenceMode', 'auto')}
+                                    >
+                                        자동 선택
+                                    </span>
+                                    <span
+                                        className={`chip${form.referenceMode === 'manual' ? ' chip--active' : ''}`}
+                                        onClick={() => onChangeField('referenceMode', 'manual')}
+                                    >
+                                        직접 입력
+                                    </span>
+                                </div>
+                                {form.referenceMode === 'manual' ? (
+                                    <>
+                                        <div className="row gap-2">
+                                            <LabeledInput
+                                                label="reference lat"
+                                                value={form.referenceLat}
+                                                onChange={(v) => onChangeField('referenceLat', v)}
+                                            />
+                                            <LabeledInput
+                                                label="reference lon"
+                                                value={form.referenceLon}
+                                                onChange={(v) => onChangeField('referenceLon', v)}
+                                            />
+                                        </div>
+                                        <FieldErrorMsg
+                                            show={fieldError?.field === 'reference'}
+                                            message={fieldError?.message}
+                                        />
+                                        <div className="faint" style={{ fontSize: 11, lineHeight: 1.5 }}>
+                                            Reference point 는 변위 0 으로 가정하는 안정 지반 좌표입니다.
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="faint" style={{ fontSize: 11, lineHeight: 1.5 }}>
+                                        PS 후보 중 시간 coherence 가 가장 높은(가장 안정한) 점을 기준점으로 자동
+                                        선택합니다. 안정 지반을 알고 있다면 직접 입력이 더 정확합니다.
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </Section>
@@ -1634,7 +1715,7 @@ function RequestSidebar({
                     </Section>
                 ) : null}
 
-                <Section title="산출 레이어">
+                <Section title="산출 레이어" hint="썸네일은 각 산출물의 대표 색상표·패턴 예시입니다.">
                     <div className="col gap-2">
                         {(
                             [
@@ -1677,6 +1758,7 @@ function RequestSidebar({
                                         checked={on}
                                         onChange={() => onToggleLayer(k)}
                                     />
+                                    <LayerPreview layerKey={k} />
                                     <span className="mono" style={{ fontSize: 12, fontWeight: on ? 600 : 400 }}>
                                         {label}
                                     </span>
