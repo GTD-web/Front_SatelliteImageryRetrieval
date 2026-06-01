@@ -1026,6 +1026,100 @@ function AssessResult({ result }: { result: AoiAssessment }) {
     );
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// 분석 기간/가용량 경고 — SBAS(시계열 길이), PSInSAR(PS 통계용 acquisition 장수)
+// ────────────────────────────────────────────────────────────────────────────
+
+interface RangeWarning {
+    tone: 'danger' | 'warning';
+    text: string;
+}
+
+/** 분석 유형별 기간·scene 수 경고를 생성한다. options 탭의 파라미터 섹션에서 표시. */
+function analysisRangeWarnings(form: RequestForm, availableCount: number): RangeWarning[] {
+    const day = 24 * 60 * 60 * 1000;
+    const spanDays = Math.max(0, (form.endDate.getTime() - form.startDate.getTime()) / day);
+    const spanYears = spanDays / 365.25;
+    const spanLabel = spanYears >= 1 ? `${spanYears.toFixed(1)}년` : `${Math.round(spanDays / 30)}개월`;
+    const out: RangeWarning[] = [];
+
+    if (form.type === 'SBAS') {
+        // SBAS velocity 는 시계열 길이에 민감 — 4~5년 이상 권장.
+        if (spanYears < 2) {
+            out.push({
+                tone: 'danger',
+                text: `SBAS 는 안정적인 velocity 추정에 보통 4~5년 이상 시계열을 권장합니다. 현재 약 ${spanLabel} — 0~1 mm/yr 미세 신호가 대기·계절 오차에 묻혀 신뢰가 어렵습니다.`,
+            });
+        } else if (spanYears < 4) {
+            out.push({
+                tone: 'warning',
+                text: `현재 약 ${spanLabel} — 권장 하한(4~5년) 미만입니다. 기간을 늘리면 velocity 신뢰도가 크게 올라갑니다.`,
+            });
+        }
+        if (availableCount > 0 && availableCount < 50) {
+            out.push({
+                tone: 'warning',
+                text: `가용 scene ${availableCount}장 — SBAS 는 촘촘한 interferogram 망을 위해 보통 수십 장 이상이 유리합니다 (5년·12일이면 ~150장).`,
+            });
+        }
+    }
+
+    if (form.type === 'PSInSAR') {
+        // PSInSAR 은 점 산란체 통계 — acquisition '장수' 가 핵심. PS 는 장기 베이스라인에 강해
+        // 시계열 길이보다 scene 수에 더 민감하다.
+        if (availableCount > 0 && availableCount < 20) {
+            out.push({
+                tone: 'danger',
+                text: `가용 scene ${availableCount}장 — PSInSAR 은 PS 후보 식별에 보통 25~30장 이상이 필요합니다. 현재로는 통계가 부족해 신뢰가 낮습니다.`,
+            });
+        } else if (availableCount > 0 && availableCount < 30) {
+            out.push({
+                tone: 'warning',
+                text: `가용 scene ${availableCount}장 — 동작은 하지만 30장 이상이면 PS 밀도·velocity 정밀도가 좋아집니다.`,
+            });
+        }
+        if (spanYears < 1) {
+            out.push({
+                tone: 'warning',
+                text: `관측 기간 약 ${spanLabel} — PS 는 장기 베이스라인에 강하지만, velocity 정밀도를 위해 최소 1년 이상 시계열을 권장합니다.`,
+            });
+        }
+    }
+
+    return out;
+}
+
+/** 분석 유형별 기간/가용량 경고 박스 목록. */
+function RangeWarningList({ items }: { items: RangeWarning[] }) {
+    if (!items.length) return null;
+    return (
+        <div className="col gap-2" style={{ marginBottom: 4 }}>
+            {items.map((w, i) => {
+                const color = w.tone === 'danger' ? 'var(--danger)' : 'var(--warning)';
+                return (
+                    <div
+                        key={i}
+                        className="row gap-2"
+                        style={{
+                            alignItems: 'flex-start',
+                            padding: '7px 9px',
+                            borderRadius: 6,
+                            fontSize: 11,
+                            lineHeight: 1.45,
+                            background: 'var(--bg-2)',
+                            border: `1px solid ${color}`,
+                            color: 'var(--text-secondary)',
+                        }}
+                    >
+                        <Icon name="info" size={12} style={{ color, marginTop: 1, flexShrink: 0 }} />
+                        <span>{w.text}</span>
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
 /** 입력 옆에 뜨는 인라인 검증 에러 메시지. */
 function FieldErrorMsg({ show, message }: { show: boolean; message?: string }) {
     if (!show) return null;
@@ -1397,6 +1491,7 @@ function RequestSidebar({
                 {form.type === 'PSInSAR' ? (
                     <Section title="PSInSAR 파라미터">
                         <div className="col gap-3">
+                            <RangeWarningList items={analysisRangeWarnings(form, availableCount)} />
                             <NumberField
                                 label="최소 scene 수"
                                 value={form.minScenes}
@@ -1442,6 +1537,7 @@ function RequestSidebar({
                 {form.type === 'SBAS' ? (
                     <Section title="SBAS 파라미터">
                         <div className="col gap-3">
+                            <RangeWarningList items={analysisRangeWarnings(form, availableCount)} />
                             <NumberField
                                 label="최대 시간 베이스라인 (일)"
                                 value={form.temporalBaselineMaxDays}
