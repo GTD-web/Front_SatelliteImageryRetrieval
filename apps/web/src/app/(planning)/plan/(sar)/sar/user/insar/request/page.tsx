@@ -261,6 +261,15 @@ function generateAvailableScenes(form: RequestForm): AvailableScene[] {
     return out;
 }
 
+/**
+ * SBAS/PSInSAR opt-out 모델의 "불량일" 판정 — |perpendicular baseline| 이 임계를 넘으면
+ * 기하 디코릴레이션 위험이 커 자동 제외 후보로 본다. (처리 전 알 수 있는 거의 유일한 품질 프록시)
+ */
+const PERP_WARN_M = 150;
+function isLowQualityScene(s: AvailableScene): boolean {
+    return Math.abs(s.perpBaseline) > PERP_WARN_M;
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // 메인 컴포넌트
 // ────────────────────────────────────────────────────────────────────────────
@@ -365,6 +374,13 @@ function InsarRequestPageInner() {
         request.nwLat, request.nwLon, request.seLat, request.seLon,
     ]);
 
+    // SBAS/PSInSAR 은 opt-out 모델 — 범위가 곧 스택이다. 가용 scene 이 바뀌면 기본값으로
+    // "전체 포함" 한다. DInSAR 은 사용자가 2장을 직접 고르므로 건드리지 않는다.
+    useEffect(() => {
+        if (request.type === 'DInSAR') return;
+        setSelectedSceneIds(new Set(availableScenes.map((s) => s.id)));
+    }, [request.type, availableScenes]);
+
     // DInSAR 모드 + 2개 선택 시 master/slave 풋프린트 겹침 비율 (정보용).
     const dinsarOverlap = useMemo<number | null>(() => {
         if (request.type !== 'DInSAR') return null;
@@ -416,6 +432,18 @@ function InsarRequestPageInner() {
         toast(`${availableScenes.length}개 scene 모두 선택`, { tone: 'success' });
     };
 
+    // SBAS/PSInSAR opt-out — |B⊥| 가 큰 불량일을 스택에서 일괄 제외.
+    const autoExcludeLowQuality = () => {
+        const keep = availableScenes.filter((s) => !isLowQualityScene(s));
+        const removed = availableScenes.length - keep.length;
+        setSelectedSceneIds(new Set(keep.map((s) => s.id)));
+        if (removed > 0) {
+            toast(`품질 낮은 ${removed}개 날짜를 제외했습니다`, { tone: 'success' });
+        } else {
+            toast('제외할 불량일이 없습니다');
+        }
+    };
+
     const initialCenter: [number, number] = requestAoi
         ? aoiCenter(requestAoi) ?? [129.37, 36.02]
         : [129.37, 36.02];
@@ -442,13 +470,17 @@ function InsarRequestPageInner() {
                 onClick: () => toggleSceneSelection(s.id),
             });
         } else if (selectedScenes.length >= 2) {
-            for (const s of selectedScenes) {
-                out.push({
-                    id: s.id,
-                    coords: s.footprint,
-                    kind: 'candidate',
-                    onClick: () => toggleSceneSelection(s.id),
-                });
+            // DInSAR 는 선택한 2장의 풋프린트를 모두 그린다. SBAS/PSInSAR 은 스택이 수십~수백 장이라
+            // 개별 풋프린트 대신 공통 관측 영역만 표시한다(지도 과밀 방지).
+            if (request.type === 'DInSAR') {
+                for (const s of selectedScenes) {
+                    out.push({
+                        id: s.id,
+                        coords: s.footprint,
+                        kind: 'candidate',
+                        onClick: () => toggleSceneSelection(s.id),
+                    });
+                }
             }
             if (commonCoverage) {
                 out.push({
@@ -658,6 +690,7 @@ function InsarRequestPageInner() {
                         onToggleScene={toggleSceneSelection}
                         onSelectAllScenes={selectAllScenes}
                         onClearScenes={clearSelectedScenes}
+                        onAutoExcludeScenes={autoExcludeLowQuality}
                         hoveredSceneId={hoveredSceneId}
                         onHoverScene={setHoveredSceneId}
                     />
@@ -1169,6 +1202,7 @@ interface RequestSidebarProps {
     onToggleScene: (id: string) => void;
     onSelectAllScenes: () => void;
     onClearScenes: () => void;
+    onAutoExcludeScenes: () => void;
     hoveredSceneId: string | null;
     onHoverScene: (id: string | null) => void;
 }
@@ -1193,6 +1227,7 @@ function RequestSidebar({
     onToggleScene,
     onSelectAllScenes,
     onClearScenes,
+    onAutoExcludeScenes,
     hoveredSceneId,
     onHoverScene,
 }: RequestSidebarProps) {
@@ -1650,6 +1685,7 @@ function RequestSidebar({
                     onToggle={onToggleScene}
                     onSelectAll={onSelectAllScenes}
                     onClear={onClearScenes}
+                    onAutoExclude={onAutoExcludeScenes}
                     analysisType={form.type}
                     dinsarOverlap={dinsarOverlap}
                     hoveredId={hoveredSceneId}
@@ -1671,7 +1707,7 @@ function RequestSidebar({
                     style={{ marginBottom: 8, fontSize: 11.5 }}
                 >
                     <span className="faint">
-                        scene 선택{' '}
+                        {form.type === 'DInSAR' ? 'scene 선택' : '스택'}{' '}
                         <span
                             className="mono tabular"
                             style={{
@@ -1757,6 +1793,8 @@ interface ScenePickerInlineProps {
     onToggle: (id: string) => void;
     onSelectAll: () => void;
     onClear: () => void;
+    /** SBAS/PSInSAR — |B⊥| 큰 불량일 일괄 제외(opt-out). */
+    onAutoExclude: () => void;
     analysisType: AnalysisType;
     /** DInSAR master/slave 겹침 % — 두 scene 선택 시에만 값. */
     dinsarOverlap: number | null;
@@ -1770,6 +1808,7 @@ function ScenePickerInline({
     onToggle,
     onSelectAll,
     onClear,
+    onAutoExclude,
     analysisType,
     dinsarOverlap,
     hoveredId,
@@ -1845,14 +1884,18 @@ function ScenePickerInline({
                         {selected.size}/{minScenes}
                     </span>
                 </div>
-                {analysisType === 'DInSAR' ? (
-                    <div
-                        className="faint"
-                        style={{ fontSize: 10.5, marginTop: 4, lineHeight: 1.4 }}
-                    >
-                        두 scene 선택 시 master/slave 자동 매칭
-                    </div>
-                ) : null}
+                <div
+                    className="faint"
+                    style={{ fontSize: 10.5, marginTop: 4, lineHeight: 1.4 }}
+                >
+                    {analysisType === 'DInSAR'
+                        ? '두 scene 선택 시 master/slave 자동 매칭'
+                        : `범위 내 ${scenes.length}장이 기본 포함 — 품질 낮은 날짜만 제외하세요${
+                              scenes.length - selected.size > 0
+                                  ? ` (제외 ${scenes.length - selected.size}장)`
+                                  : ''
+                          }`}
+                </div>
 
                 {baselineSummary ? (
                     <div
@@ -1946,9 +1989,14 @@ function ScenePickerInline({
                     </div>
                 ) : (
                     scenes.map((s) => {
+                        const isDinsar = analysisType === 'DInSAR';
                         const isSel = selected.has(s.id);
                         const isHov = hoveredId === s.id;
-                        const order = isSel ? Array.from(selected).indexOf(s.id) + 1 : null;
+                        // 순서 칩은 DInSAR(master/slave) 에서만 의미가 있다.
+                        const order = isDinsar && isSel ? Array.from(selected).indexOf(s.id) + 1 : null;
+                        // opt-out: SBAS/PSInSAR 은 미선택 = 스택에서 제외된 날짜.
+                        const excluded = !isDinsar && !isSel;
+                        const lowQ = isLowQualityScene(s);
                         const missionColor = s.mission === 'S1A' ? '#22d3ee' : '#a855f7';
                         return (
                             <div
@@ -1959,14 +2007,16 @@ function ScenePickerInline({
                                 style={{
                                     padding: '8px 10px',
                                     borderBottom: '1px solid var(--border-subtle)',
-                                    background: isSel
-                                        ? 'var(--accent-soft)'
-                                        : isHov
-                                          ? 'var(--bg-2)'
-                                          : undefined,
+                                    background:
+                                        isDinsar && isSel
+                                            ? 'var(--accent-soft)'
+                                            : isHov
+                                              ? 'var(--bg-2)'
+                                              : undefined,
                                     borderLeft: isSel
                                         ? '3px solid var(--accent)'
                                         : '3px solid transparent',
+                                    opacity: excluded ? 0.45 : 1,
                                     cursor: 'pointer',
                                     display: 'flex',
                                     alignItems: 'center',
@@ -1981,8 +2031,7 @@ function ScenePickerInline({
                                     onClick={(e) => e.stopPropagation()}
                                     style={{ flexShrink: 0 }}
                                 />
-                                {/* SLC 는 미리보기 미지원 — 썸네일 대신 선택 순서 칩만 보여주고
-                                    실제 풋프린트는 지도에서 확인. */}
+                                {/* SLC 는 미리보기 미지원 — DInSAR 은 선택 순서 칩, 그 외엔 생략. */}
                                 {order ? (
                                     <span
                                         title={`선택 순서: ${order}`}
@@ -2031,10 +2080,32 @@ function ScenePickerInline({
                                         >
                                             {s.date}
                                         </span>
+                                        {lowQ ? (
+                                            <span
+                                                title={`|B⊥| ${Math.abs(s.perpBaseline)}m > ${PERP_WARN_M}m — 기하 디코릴레이션 위험`}
+                                                style={{
+                                                    fontSize: 9,
+                                                    padding: '0 4px',
+                                                    height: 14,
+                                                    lineHeight: '13px',
+                                                    borderRadius: 3,
+                                                    background: 'var(--warning-soft)',
+                                                    color: 'var(--warning)',
+                                                    fontWeight: 700,
+                                                }}
+                                            >
+                                                주의
+                                            </span>
+                                        ) : null}
                                         <span
-                                            className="faint mono tabular"
+                                            className="mono tabular"
                                             title="perpendicular baseline — 작을수록 coherence 양호"
-                                            style={{ fontSize: 10, marginLeft: 'auto' }}
+                                            style={{
+                                                fontSize: 10,
+                                                marginLeft: 'auto',
+                                                color: lowQ ? 'var(--warning)' : 'var(--text-tertiary)',
+                                                fontWeight: lowQ ? 600 : 400,
+                                            }}
                                         >
                                             ⊥{s.perpBaseline >= 0 ? '+' : ''}
                                             {s.perpBaseline}m
@@ -2050,6 +2121,7 @@ function ScenePickerInline({
                                             textOverflow: 'ellipsis',
                                             whiteSpace: 'nowrap',
                                             color: 'var(--text-primary)',
+                                            textDecoration: excluded ? 'line-through' : undefined,
                                         }}
                                     >
                                         {s.id}
@@ -2079,17 +2151,30 @@ function ScenePickerInline({
                     disabled={scenes.length === 0 || allSelected}
                 >
                     <Icon name="plus" size={11} />{' '}
-                    {analysisType === 'DInSAR' ? '첫/마지막 페어' : `전체 (${scenes.length})`}
+                    {analysisType === 'DInSAR' ? '첫/마지막 페어' : '전체 포함'}
                 </button>
-                <button
-                    type="button"
-                    className="btn btn--ghost btn--sm"
-                    onClick={onClear}
-                    disabled={selected.size === 0}
-                    style={{ flex: '0 0 auto' }}
-                >
-                    해제
-                </button>
+                {analysisType === 'DInSAR' ? (
+                    <button
+                        type="button"
+                        className="btn btn--ghost btn--sm"
+                        onClick={onClear}
+                        disabled={selected.size === 0}
+                        style={{ flex: '0 0 auto' }}
+                    >
+                        해제
+                    </button>
+                ) : (
+                    <button
+                        type="button"
+                        className="btn btn--ghost btn--sm"
+                        onClick={onAutoExclude}
+                        disabled={scenes.length === 0}
+                        style={{ flex: '0 0 auto' }}
+                        title={`|B⊥| > ${PERP_WARN_M}m 인 날짜를 스택에서 자동 제외`}
+                    >
+                        불량일 제외
+                    </button>
+                )}
             </div>
         </div>
     );
