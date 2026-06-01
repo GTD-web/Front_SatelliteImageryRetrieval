@@ -1,7 +1,17 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import localFont from 'next/font/local';
 
 import './globals.css';
+
+// 전체 텍스트 기본 폰트 — Pretendard (가변 폰트, 셀프 호스팅).
+// CSS 변수 --font-pretendard 로 노출해 globals.css 의 --font-sans/--font-mono 에서 참조한다.
+const pretendard = localFont({
+    src: './fonts/PretendardVariable.woff2',
+    variable: '--font-pretendard',
+    display: 'swap',
+    weight: '45 920',
+});
 
 export const metadata: Metadata = {
     title: 'Sentinel 데이터 플랫폼',
@@ -25,12 +35,14 @@ const THEME_INIT_SCRIPT = `
 
 export default function RootLayout({ children }: { children: ReactNode }) {
     return (
-        <html lang="ko" data-theme="dark" data-density="comfortable" suppressHydrationWarning>
+        <html
+            lang="ko"
+            data-theme="dark"
+            data-density="comfortable"
+            className={pretendard.variable}
+            suppressHydrationWarning
+        >
             <head>
-                <link
-                    rel="stylesheet"
-                    href="https://spoqa.github.io/spoqa-han-sans/css/SpoqaHanSansNeo.css"
-                />
                 <link
                     rel="stylesheet"
                     href="https://fonts.googleapis.com/css2?family=Ubuntu+Mono:wght@400;700&display=swap"
