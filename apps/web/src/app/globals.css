@@ -13,11 +13,11 @@
 
 :root,
 [data-theme='dark'] {
-    /* 전체 텍스트는 Spoqa Han Sans Neo를 사용한다. */
+    /* 전체 텍스트는 Pretendard(가변 폰트)를 사용한다. layout.tsx 의 next/font/local 이 주입. */
     --font-sans:
-        'Spoqa Han Sans Neo', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Segoe UI', system-ui,
-        'Noto Sans KR', sans-serif;
-    --font-mono: 'Spoqa Han Sans Neo', 'Ubuntu Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+        var(--font-pretendard), 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,
+        'Apple SD Gothic Neo', 'Segoe UI', system-ui, 'Noto Sans KR', sans-serif;
+    --font-mono: var(--font-pretendard), 'Ubuntu Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
 
     /* Surface layers — '진한 회색'에서 한 단계 더 밝게 (다크모드 시인성). */
     --bg-0: #17181c;
