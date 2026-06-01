@@ -7,7 +7,7 @@ import './globals.css';
 // 전체 텍스트 기본 폰트 — Pretendard (가변 폰트, 셀프 호스팅).
 // CSS 변수 --font-pretendard 로 노출해 globals.css 의 --font-sans/--font-mono 에서 참조한다.
 const pretendard = localFont({
-    src: './fonts/PretendardVariable.ttf',
+    src: './fonts/PretendardVariable.woff2',
     variable: '--font-pretendard',
     display: 'swap',
     weight: '45 920',
