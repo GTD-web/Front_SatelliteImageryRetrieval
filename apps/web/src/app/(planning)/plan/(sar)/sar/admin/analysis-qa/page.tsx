@@ -15,6 +15,7 @@ import {
     isMisleading,
     type Confidence,
     type Grade,
+    type MetricDef,
     type ProductType,
     type QaProduct,
 } from '@/_shared/insar-qa';
@@ -59,6 +60,36 @@ export default function AnalysisQaPage() {
     const avgUnwrap = Math.round(
         (scored.reduce((a, s) => a + s.product.metrics.connectedRatio, 0) / scored.length) * 100,
     );
+
+    // 재처리 권장 큐 — 신뢰도가 낮거나(점수<0.5) 위험 등급 지표를 가진 산출물만 추려 점수 오름차순.
+    const worklist = useMemo(
+        () =>
+            scored
+                .map((s) => ({
+                    ...s,
+                    riskMetrics: METRIC_DEFS.filter(
+                        (d) => !(d.skipForDinsar && s.product.type === 'DInSAR'),
+                    ).filter((d) => d.grade(s.product.metrics[d.key] as number) === 'risk'),
+                }))
+                .filter((s) => s.score < 0.5 || s.riskMetrics.length > 0)
+                .sort((a, b) => a.score - b.score),
+        [scored],
+    );
+
+    // 포트폴리오 지표 프로파일 — 전체 산출물 평균(네트워크 안정성은 SBAS/PS 에만 적용).
+    const profile = useMemo(
+        () =>
+            METRIC_DEFS.map((d) => {
+                const applicable = PRODUCTS.filter((p) => !(d.skipForDinsar && p.type === 'DInSAR'));
+                const avg =
+                    applicable.reduce((a, p) => a + (p.metrics[d.key] as number), 0) / applicable.length;
+                return { def: d, avg, grade: d.grade(avg), norm: clamp01(d.norm(avg)) };
+            }),
+        [],
+    );
+
+    const reprocess = (name: string) =>
+        toast(`${name} 재처리 잡을 큐에 추가했습니다`, { tone: 'success', title: '재처리 요청' });
 
     return (
         <div className="col" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
@@ -216,6 +247,12 @@ export default function AnalysisQaPage() {
 
                     {/* 선택 산출물 상세 */}
                     <DetailPanel detail={current} />
+                </div>
+
+                {/* 재처리 권장 큐 + 포트폴리오 지표 프로파일 */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1.35fr 1fr', gap: 12 }}>
+                    <ReprocessQueue items={worklist} onSelect={setSelected} onReprocess={reprocess} />
+                    <MetricProfile profile={profile} />
                 </div>
             </div>
 
@@ -442,6 +479,193 @@ function DetailPanel({ detail }: { detail: Detail }) {
                         </span>
                     ) : null}
                 </div>
+            </div>
+        </div>
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 재처리 권장 큐 — 저신뢰/위험 산출물 worklist
+// ────────────────────────────────────────────────────────────────────────────
+
+interface WorkItem {
+    product: QaProduct;
+    score: number;
+    conf: Confidence;
+    riskMetrics: MetricDef[];
+}
+
+function ReprocessQueue({
+    items,
+    onSelect,
+    onReprocess,
+}: {
+    items: WorkItem[];
+    onSelect: (id: string) => void;
+    onReprocess: (name: string) => void;
+}) {
+    return (
+        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+            <div className="card__header">
+                <div>
+                    <div className="card__title">재처리 권장 큐</div>
+                    <div className="card__subtle">저신뢰(점수 &lt; 0.50) 또는 위험 지표가 있는 산출물</div>
+                </div>
+                <span className={`badge ${items.length > 0 ? 'badge--danger' : 'badge--neutral'}`}>
+                    {items.length}건
+                </span>
+            </div>
+            <div className="card__body col gap-2" style={{ paddingTop: 12 }}>
+                {items.length === 0 ? (
+                    <div className="row gap-2" style={{ alignItems: 'center', padding: '8px 2px' }}>
+                        <Icon name="check" size={15} style={{ color: 'var(--success)' }} />
+                        <span className="faint" style={{ fontSize: 12.5 }}>
+                            재처리가 필요한 산출물이 없습니다 — 모든 산출물이 신뢰 가능합니다.
+                        </span>
+                    </div>
+                ) : (
+                    items.map(({ product: p, score, conf, riskMetrics }) => (
+                        <div
+                            key={p.id}
+                            className="row between"
+                            onClick={() => onSelect(p.id)}
+                            style={{
+                                gap: 10,
+                                padding: '9px 11px',
+                                borderRadius: 6,
+                                background: 'var(--bg-1)',
+                                border: '1px solid var(--border-subtle)',
+                                cursor: 'pointer',
+                            }}
+                        >
+                            <div className="col" style={{ gap: 4, minWidth: 0, flex: 1 }}>
+                                <div className="row gap-2" style={{ alignItems: 'center', minWidth: 0 }}>
+                                    <span className={`badge ${typeBadge(p.type)}`} style={{ fontSize: 9.5 }}>
+                                        {p.type}
+                                    </span>
+                                    <span
+                                        style={{
+                                            fontSize: 12.5,
+                                            fontWeight: 500,
+                                            whiteSpace: 'nowrap',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                        }}
+                                    >
+                                        {p.name}
+                                    </span>
+                                </div>
+                                <div className="row gap-1" style={{ flexWrap: 'wrap' }}>
+                                    {riskMetrics.length === 0 ? (
+                                        <span
+                                            className="badge"
+                                            style={{
+                                                fontSize: 9.5,
+                                                color: 'var(--danger)',
+                                                background: 'color-mix(in srgb, var(--danger) 14%, transparent)',
+                                            }}
+                                        >
+                                            종합 점수 낮음
+                                        </span>
+                                    ) : (
+                                        riskMetrics.map((d) => (
+                                            <span
+                                                key={d.key}
+                                                className="badge"
+                                                style={{
+                                                    fontSize: 9.5,
+                                                    color: 'var(--danger)',
+                                                    background:
+                                                        'color-mix(in srgb, var(--danger) 14%, transparent)',
+                                                }}
+                                            >
+                                                {d.label}
+                                            </span>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                            <div className="col" style={{ alignItems: 'flex-end', gap: 5, flexShrink: 0 }}>
+                                <span
+                                    className="mono tabular"
+                                    style={{ fontSize: 13, fontWeight: 700, color: GRADE_COLOR[conf.grade] }}
+                                >
+                                    {score.toFixed(2)}
+                                </span>
+                                <button
+                                    type="button"
+                                    className="btn btn--outline-accent btn--sm"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onReprocess(p.name);
+                                    }}
+                                >
+                                    <Icon name="refresh" size={11} /> 재처리
+                                </button>
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
+        </div>
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 포트폴리오 지표 프로파일 — 전체 평균으로 약한 품질 축 파악
+// ────────────────────────────────────────────────────────────────────────────
+
+interface ProfileRow {
+    def: MetricDef;
+    avg: number;
+    grade: Grade;
+    norm: number;
+}
+
+function MetricProfile({ profile }: { profile: ProfileRow[] }) {
+    return (
+        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+            <div className="card__header">
+                <div>
+                    <div className="card__title">포트폴리오 지표 프로파일</div>
+                    <div className="card__subtle">전체 산출물 평균 — 어떤 품질 축이 약한지</div>
+                </div>
+            </div>
+            <div className="card__body col gap-3" style={{ paddingTop: 12 }}>
+                {profile.map(({ def, avg, grade, norm }) => (
+                    <div key={def.key} className="col" style={{ gap: 4 }}>
+                        <div className="between" style={{ fontSize: 12 }}>
+                            <span className="row" style={{ alignItems: 'center', gap: 5 }}>
+                                {def.label}
+                                <InfoTip text={`${def.info}\n\n기준: ${def.rule}`} size={11} />
+                            </span>
+                            <span className="row gap-2" style={{ alignItems: 'center' }}>
+                                <span className="mono tabular" style={{ fontWeight: 600 }}>
+                                    {def.fmt(avg)}
+                                </span>
+                                <span
+                                    className="badge"
+                                    style={{
+                                        fontSize: 9.5,
+                                        color: GRADE_COLOR[grade],
+                                        background: `color-mix(in srgb, ${GRADE_COLOR[grade]} 14%, transparent)`,
+                                    }}
+                                >
+                                    {GRADE_LABEL[grade]}
+                                </span>
+                            </span>
+                        </div>
+                        <div className="progress" style={{ height: 6 }}>
+                            <div
+                                className="progress__fill"
+                                style={{
+                                    width: `${Math.round(norm * 100)}%`,
+                                    background: GRADE_COLOR[grade],
+                                }}
+                            />
+                        </div>
+                    </div>
+                ))}
             </div>
         </div>
     );
