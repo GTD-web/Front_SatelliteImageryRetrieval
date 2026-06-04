@@ -1012,6 +1012,39 @@
     outline-offset: 1px;
 }
 
+/* 사용자 아바타 popover 의 메뉴 항목(비밀번호 변경 / 로그아웃) */
+.avatar-menu__item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 8px;
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    text-align: left;
+    transition: background 120ms ease, color 120ms ease;
+}
+.avatar-menu__item:hover {
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+}
+.avatar-menu__item--danger {
+    color: var(--danger, #ef4444);
+}
+.avatar-menu__item--danger:hover {
+    color: var(--danger, #ef4444);
+    background: color-mix(in srgb, var(--danger, #ef4444) 12%, transparent);
+}
+.avatar-menu__item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
 .kbd {
     font-family: var(--font-mono);
     font-size: 10.5px;

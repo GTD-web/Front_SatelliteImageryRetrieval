@@ -8,7 +8,9 @@ import { createPortal } from 'react-dom';
 import { CartButton } from './CartOverlay';
 import { Icon, type IconName } from './Icon';
 import { useHifiPrefs } from './HifiPrefsProvider';
+import { Modal } from './Modal';
 import { NotificationsButton } from './NotificationsOverlay';
+import { useToast } from './ToastProvider';
 
 type Role = 'user' | 'admin';
 
@@ -133,6 +135,7 @@ function UserAvatarMenu({ role }: { role: Role }) {
     const popoverRef = useRef<HTMLDivElement | null>(null);
     const [open, setOpen] = useState(false);
     const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+    const [pwOpen, setPwOpen] = useState(false);
 
     useEffect(() => {
         if (!open) return;
@@ -177,6 +180,18 @@ function UserAvatarMenu({ role }: { role: Role }) {
         setOpen(false);
         if (next === role) return;
         router.push(next === 'admin' ? `${base}/admin/dashboard` : `${base}/user/search`);
+    };
+
+    const openChangePassword = () => {
+        setOpen(false);
+        setPwOpen(true);
+    };
+
+    const logout = () => {
+        setOpen(false);
+        // 데모: 실제 토큰/세션 무효화 대신 로그인 화면으로 이동. 백엔드 연결 후
+        // POST /api/v1/auth/logout 호출 + 쿠키 제거로 교체한다.
+        router.push('/login');
     };
 
     return (
@@ -272,10 +287,136 @@ function UserAvatarMenu({ role }: { role: Role }) {
                                   })}
                               </div>
                           </div>
+                          <div
+                              style={{
+                                  borderTop: '1px solid var(--border-subtle)',
+                                  paddingTop: 8,
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: 2,
+                              }}
+                          >
+                              <button
+                                  type="button"
+                                  role="menuitem"
+                                  className="avatar-menu__item"
+                                  onClick={openChangePassword}
+                                  data-testid="sidenav-change-password"
+                              >
+                                  <Icon name="shield" size={14} />
+                                  <span>비밀번호 변경</span>
+                              </button>
+                              <button
+                                  type="button"
+                                  role="menuitem"
+                                  className="avatar-menu__item avatar-menu__item--danger"
+                                  onClick={logout}
+                                  data-testid="sidenav-logout"
+                              >
+                                  <Icon name="logout" size={14} />
+                                  <span>로그아웃</span>
+                              </button>
+                          </div>
                       </div>,
                       document.body,
                   )
                 : null}
+            {pwOpen ? <ChangePasswordModal onClose={() => setPwOpen(false)} /> : null}
         </>
+    );
+}
+
+/** 비밀번호 변경 모달. 현재/새/확인 3필드 검증 후 mock 저장. */
+function ChangePasswordModal({ onClose }: { onClose: () => void }) {
+    const toast = useToast();
+    const [current, setCurrent] = useState('');
+    const [next, setNext] = useState('');
+    const [confirm, setConfirm] = useState('');
+    const [saving, setSaving] = useState(false);
+
+    const submit = () => {
+        if (!current || !next || !confirm) {
+            toast('모든 항목을 입력하세요', { tone: 'warning' });
+            return;
+        }
+        if (next.length < 8) {
+            toast('새 비밀번호는 8자 이상이어야 합니다', { tone: 'warning' });
+            return;
+        }
+        if (next === current) {
+            toast('새 비밀번호가 현재 비밀번호와 같습니다', { tone: 'warning' });
+            return;
+        }
+        if (next !== confirm) {
+            toast('새 비밀번호가 일치하지 않습니다', { tone: 'warning' });
+            return;
+        }
+        setSaving(true);
+        // Mock: 백엔드 연결 후 POST /api/v1/auth/change-password 로 교체.
+        setTimeout(() => {
+            setSaving(false);
+            toast('비밀번호가 변경되었습니다', { tone: 'success' });
+            onClose();
+        }, 600);
+    };
+
+    return (
+        <Modal
+            title="비밀번호 변경"
+            sub="안전을 위해 8자 이상의 새 비밀번호를 사용하세요"
+            onClose={onClose}
+            footer={
+                <>
+                    <button type="button" className="btn" onClick={onClose} disabled={saving}>
+                        취소
+                    </button>
+                    <button type="button" className="btn btn--primary" onClick={submit} disabled={saving}>
+                        {saving ? '변경 중…' : '변경하기'}
+                    </button>
+                </>
+            }
+        >
+            <form
+                onSubmit={(e) => {
+                    e.preventDefault();
+                    submit();
+                }}
+                className="col gap-3"
+            >
+                <div>
+                    <label className="field-label">현재 비밀번호</label>
+                    <input
+                        className="input"
+                        type="password"
+                        value={current}
+                        onChange={(e) => setCurrent(e.target.value)}
+                        autoFocus
+                        autoComplete="current-password"
+                    />
+                </div>
+                <div>
+                    <label className="field-label">새 비밀번호</label>
+                    <input
+                        className="input"
+                        type="password"
+                        placeholder="8자 이상"
+                        value={next}
+                        onChange={(e) => setNext(e.target.value)}
+                        autoComplete="new-password"
+                    />
+                </div>
+                <div>
+                    <label className="field-label">새 비밀번호 확인</label>
+                    <input
+                        className="input"
+                        type="password"
+                        value={confirm}
+                        onChange={(e) => setConfirm(e.target.value)}
+                        autoComplete="new-password"
+                    />
+                </div>
+                <button type="submit" style={{ display: 'none' }} aria-hidden="true" tabIndex={-1} />
+            </form>
+        </Modal>
     );
 }
