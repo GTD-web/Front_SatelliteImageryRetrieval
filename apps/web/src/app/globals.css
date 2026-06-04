@@ -1691,9 +1691,9 @@
     position: relative;
     display: flex;
     align-items: flex-start;
-    gap: 12px;
+    gap: 10px;
     width: 100%;
-    padding: 22px 36px 22px 22px; /* shadcn p-6 pr-8 느낌 — X 자리 확보 */
+    padding: 12px 32px 12px 14px; /* 더 컴팩트하게 — 우측은 X 버튼(right:8 + 22px) 자리 확보 */
     background: var(--bg-2);
     border: 1px solid var(--border-default);
     border-radius: var(--r-md);
