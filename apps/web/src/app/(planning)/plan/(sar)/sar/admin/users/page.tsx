@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-import { Icon, useConfirm, useToast } from '@/_ui/hifi';
+import { Icon, Modal, useConfirm, useToast } from '@/_ui/hifi';
 import {
     EDITABLE_USER_ROLES,
     USER_ROLE_BADGE_CLASS,
@@ -21,16 +21,90 @@ interface User {
     status: UserStatus;
     joined: string;
     last: string;
+    /** 회원가입 시 제출한 소속 기관. 초대로 생성된 계정은 비어 있을 수 있다. */
+    organization: string;
+    /** 회원가입 시 제출한 연락처(선택). */
+    phone?: string;
+    /** 회원가입 시 제출한 이용 목적. */
+    purpose: string;
 }
 
 const INITIAL: User[] = [
-    { email: 'kim@ksit.re.kr', name: '김연구원', role: 'downloader', status: 'active', joined: '2025-08-12', last: '2분 전' },
-    { email: 'park@ksit.re.kr', name: '박지수', role: 'downloader', status: 'active', joined: '2025-09-03', last: '15분 전' },
-    { email: 'lee@labs.kr', name: '이민호', role: 'viewer', status: 'active', joined: '2026-01-14', last: '1시간 전' },
-    { email: 'choi@univ.ac.kr', name: '최윤라', role: 'pending', status: 'pending', joined: '2026-04-23', last: '—' },
-    { email: 'jung@ksit.re.kr', name: '정소현', role: 'pending', status: 'pending', joined: '2026-04-24', last: '—' },
-    { email: 'hong@ksit.re.kr', name: '홍길동', role: 'admin', status: 'active', joined: '2024-03-01', last: '어제' },
-    { email: 'yoon@ksit.re.kr', name: '윤재민', role: 'viewer', status: 'inactive', joined: '2025-02-20', last: '3개월 전' },
+    {
+        email: 'kim@ksit.re.kr',
+        name: '김연구원',
+        role: 'downloader',
+        status: 'active',
+        joined: '2025-08-12',
+        last: '2분 전',
+        organization: '한국산업기술시험원',
+        phone: '010-2345-6789',
+        purpose: '포항 지역 지반 침하 모니터링용 SAR 시계열 분석',
+    },
+    {
+        email: 'park@ksit.re.kr',
+        name: '박지수',
+        role: 'downloader',
+        status: 'active',
+        joined: '2025-09-03',
+        last: '15분 전',
+        organization: '한국산업기술시험원',
+        phone: '010-3456-7890',
+        purpose: '연안 변위 관측 정기 다운로드',
+    },
+    {
+        email: 'lee@labs.kr',
+        name: '이민호',
+        role: 'viewer',
+        status: 'active',
+        joined: '2026-01-14',
+        last: '1시간 전',
+        organization: '지오랩스',
+        purpose: '연구용 InSAR 산출물 열람',
+    },
+    {
+        email: 'choi@univ.ac.kr',
+        name: '최윤라',
+        role: 'pending',
+        status: 'pending',
+        joined: '2026-04-23',
+        last: '—',
+        organization: '○○대학교 지구환경과학과',
+        phone: '010-5678-1234',
+        purpose: '석사 논문 — 경주 단층대 지표 변위 분석을 위해 Sentinel-1 SLC 데이터가 필요합니다.',
+    },
+    {
+        email: 'jung@ksit.re.kr',
+        name: '정소현',
+        role: 'pending',
+        status: 'pending',
+        joined: '2026-04-24',
+        last: '—',
+        organization: '한국산업기술시험원',
+        phone: '010-6789-2345',
+        purpose: '신규 입사자 — 다운로드 권한 요청 (팀장 승인 예정)',
+    },
+    {
+        email: 'hong@ksit.re.kr',
+        name: '홍길동',
+        role: 'admin',
+        status: 'active',
+        joined: '2024-03-01',
+        last: '어제',
+        organization: '한국산업기술시험원',
+        phone: '010-1111-2222',
+        purpose: '플랫폼 운영 관리자',
+    },
+    {
+        email: 'yoon@ksit.re.kr',
+        name: '윤재민',
+        role: 'viewer',
+        status: 'inactive',
+        joined: '2025-02-20',
+        last: '3개월 전',
+        organization: '지오랩스',
+        purpose: '단기 프로젝트 종료로 비활성화됨',
+    },
 ];
 
 export default function UsersPage() {
@@ -41,6 +115,8 @@ export default function UsersPage() {
     const [statusFilter, setStatusFilter] = useState<'all' | UserStatus>('all');
     const [roleFilter, setRoleFilter] = useState<'전체' | UserRole>('전체');
     const [editing, setEditing] = useState<User | null>(null);
+    const [reviewing, setReviewing] = useState<User | null>(null);
+    const [inviteOpen, setInviteOpen] = useState(false);
 
     const filtered = useMemo(
         () =>
@@ -67,7 +143,7 @@ export default function UsersPage() {
         const ok = await confirm({
             title: '가입 승인',
             body: `${email} 사용자의 가입을 승인하시겠습니까?`,
-            sub: '승인하면 viewer 권한으로 활성화됩니다.',
+            sub: '승인하면 viewer 권한으로 활성화되고, 사용자에게 초기 비밀번호 설정 메일이 발송됩니다.',
             confirmLabel: '승인',
         });
         if (!ok) return;
@@ -76,7 +152,10 @@ export default function UsersPage() {
                 u.email === email ? { ...u, status: 'active' as UserStatus, role: 'viewer' as UserRole, last: '방금' } : u,
             ),
         );
-        toast(`${email} 승인됨`, { tone: 'success' });
+        setReviewing(null);
+        // Mock: 백엔드 연결 후 승인 시 초기 비밀번호 설정 토큰을 생성하고
+        // /set-password?token=... 링크를 담은 메일을 큐잉한다.
+        toast(`${email} 승인됨 · 초기 비밀번호 설정 메일을 발송했습니다`, { tone: 'success' });
     };
     const reject = async (email: string) => {
         const ok = await confirm({
@@ -88,7 +167,30 @@ export default function UsersPage() {
         });
         if (!ok) return;
         setUsers((prev) => prev.filter((u) => u.email !== email));
+        setReviewing(null);
         toast(`${email} 거절됨`);
+    };
+
+    const invite = (email: string, role: Exclude<UserRole, 'pending'>) => {
+        // Mock: 백엔드 연결 후 POST /api/v1/auth/invitations 로 교체(초대 토큰 메일 발송).
+        setUsers((prev) => {
+            if (prev.some((u) => u.email.toLowerCase() === email.toLowerCase())) return prev;
+            return [
+                {
+                    email,
+                    name: email.split('@')[0],
+                    role,
+                    status: 'pending' as UserStatus,
+                    joined: '초대됨',
+                    last: '—',
+                    organization: '',
+                    purpose: '관리자 초대',
+                },
+                ...prev,
+            ];
+        });
+        setInviteOpen(false);
+        toast(`${email} 으로 초대 메일을 전송했습니다`, { tone: 'success', title: '초대 발송' });
     };
 
     const saveUser = (email: string, patch: { name: string; role: UserRole; status: UserStatus }) => {
@@ -159,7 +261,8 @@ export default function UsersPage() {
                     <button
                         type="button"
                         className="btn btn--primary btn--sm"
-                        onClick={() => toast('초대 메일 입력 폼 준비 중')}
+                        onClick={() => setInviteOpen(true)}
+                        data-testid="users-invite-btn"
                     >
                         <Icon name="plus" size={13} /> 초대
                     </button>
@@ -174,17 +277,18 @@ export default function UsersPage() {
                                     <input type="checkbox" className="checkbox" />
                                 </th>
                                 <th>사용자</th>
+                                <th>기관</th>
                                 <th>역할</th>
                                 <th>상태</th>
                                 <th>가입일</th>
                                 <th>최근 활동</th>
-                                <th style={{ width: 180 }}></th>
+                                <th style={{ width: 200 }}></th>
                             </tr>
                         </thead>
                         <tbody>
                             {filtered.length === 0 ? (
                                 <tr>
-                                    <td colSpan={7} className="empty" style={{ padding: 40 }}>
+                                    <td colSpan={8} className="empty" style={{ padding: 40 }}>
                                         일치하는 사용자가 없습니다
                                     </td>
                                 </tr>
@@ -228,6 +332,26 @@ export default function UsersPage() {
                                                 </div>
                                             </div>
                                         </td>
+                                        <td style={{ maxWidth: 200 }}>
+                                            {u.organization ? (
+                                                <span
+                                                    style={{
+                                                        fontSize: 12.5,
+                                                        display: 'block',
+                                                        overflow: 'hidden',
+                                                        textOverflow: 'ellipsis',
+                                                        whiteSpace: 'nowrap',
+                                                    }}
+                                                    title={u.organization}
+                                                >
+                                                    {u.organization}
+                                                </span>
+                                            ) : (
+                                                <span className="faint" style={{ fontSize: 12 }}>
+                                                    —
+                                                </span>
+                                            )}
+                                        </td>
                                         <td>
                                             <span className={USER_ROLE_BADGE_CLASS[u.role]}>
                                                 {USER_ROLE_LABELS[u.role]}
@@ -248,6 +372,13 @@ export default function UsersPage() {
                                             <div className="row gap-1">
                                                 {u.status === 'pending' ? (
                                                     <>
+                                                        <button
+                                                            type="button"
+                                                            className="btn btn--ghost btn--sm"
+                                                            onClick={() => setReviewing(u)}
+                                                        >
+                                                            상세
+                                                        </button>
                                                         <button
                                                             type="button"
                                                             className="btn btn--outline-accent btn--sm"
@@ -292,7 +423,209 @@ export default function UsersPage() {
                 </div>
             </div>
             <UserEditDrawer user={editing} onClose={() => setEditing(null)} onSave={saveUser} />
+            {reviewing ? (
+                <SignupRequestModal
+                    user={reviewing}
+                    onClose={() => setReviewing(null)}
+                    onApprove={() => approve(reviewing.email)}
+                    onReject={() => reject(reviewing.email)}
+                />
+            ) : null}
+            {inviteOpen ? <InviteModal onClose={() => setInviteOpen(false)} onInvite={invite} /> : null}
         </div>
+    );
+}
+
+interface SignupRequestModalProps {
+    user: User;
+    onClose: () => void;
+    onApprove: () => void;
+    onReject: () => void;
+}
+
+/** 가입 요청 상세 — 회원가입 시 제출한 기관/연락처/이용 목적을 검토하고 승인·거절한다. */
+function SignupRequestModal({ user, onClose, onApprove, onReject }: SignupRequestModalProps) {
+    return (
+        <Modal
+            title="가입 요청 상세"
+            sub="회원가입 시 제출된 정보를 확인한 뒤 승인하세요"
+            onClose={onClose}
+            footer={
+                <>
+                    <button type="button" className="btn btn--danger" onClick={onReject}>
+                        거절
+                    </button>
+                    <button type="button" className="btn btn--primary" onClick={onApprove}>
+                        승인하고 메일 발송
+                    </button>
+                </>
+            }
+        >
+            <div className="col gap-3">
+                <div className="row gap-3" style={{ alignItems: 'center' }}>
+                    <div
+                        style={{
+                            width: 44,
+                            height: 44,
+                            borderRadius: '50%',
+                            background: 'linear-gradient(135deg, var(--accent), var(--brand-2))',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: 'var(--accent-fg)',
+                            fontWeight: 600,
+                            fontSize: 15,
+                            flexShrink: 0,
+                        }}
+                    >
+                        {user.name.slice(0, 2)}
+                    </div>
+                    <div className="col" style={{ gap: 2, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600 }}>{user.name}</div>
+                        <div className="mono faint" style={{ fontSize: 12 }}>
+                            {user.email}
+                        </div>
+                    </div>
+                </div>
+
+                <DetailRow label="소속 기관" value={user.organization || '—'} />
+                <DetailRow label="연락처" value={user.phone || '미입력'} mono />
+                <DetailRow label="가입 요청일" value={user.joined} mono />
+
+                <div>
+                    <div className="field-label">이용 목적</div>
+                    <div
+                        style={{
+                            padding: 12,
+                            background: 'var(--bg-2)',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: 8,
+                            fontSize: 13,
+                            lineHeight: 1.6,
+                            whiteSpace: 'pre-wrap',
+                        }}
+                    >
+                        {user.purpose || '—'}
+                    </div>
+                </div>
+            </div>
+        </Modal>
+    );
+}
+
+function DetailRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+    return (
+        <div className="between" style={{ alignItems: 'baseline', gap: 16 }}>
+            <span className="faint" style={{ fontSize: 12.5, flexShrink: 0 }}>
+                {label}
+            </span>
+            <span
+                className={mono ? 'mono' : undefined}
+                style={{ fontSize: 13, color: 'var(--text-secondary)', textAlign: 'right' }}
+            >
+                {value}
+            </span>
+        </div>
+    );
+}
+
+interface InviteModalProps {
+    onClose: () => void;
+    onInvite: (email: string, role: Exclude<UserRole, 'pending'>) => void;
+}
+
+/** 초대 메일 입력 폼 — 이메일 + 부여할 역할 + 안내 메시지(선택). */
+function InviteModal({ onClose, onInvite }: InviteModalProps) {
+    const toast = useToast();
+    const [email, setEmail] = useState('');
+    const [role, setRole] = useState<Exclude<UserRole, 'pending'>>('viewer');
+    const [message, setMessage] = useState('');
+    const [sending, setSending] = useState(false);
+
+    const submit = () => {
+        const trimmed = email.trim();
+        if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+            toast('올바른 이메일을 입력하세요', { tone: 'warning' });
+            return;
+        }
+        setSending(true);
+        // Mock: 실제로는 초대 토큰을 만들어 메일을 발송한다. message 는 메일 본문에 포함.
+        setTimeout(() => {
+            setSending(false);
+            onInvite(trimmed, role);
+        }, 500);
+    };
+
+    return (
+        <Modal
+            title="사용자 초대"
+            sub="초대 메일로 가입 링크를 보냅니다. 수락 시 지정한 역할로 활성화됩니다."
+            onClose={onClose}
+            footer={
+                <>
+                    <button type="button" className="btn" onClick={onClose} disabled={sending}>
+                        취소
+                    </button>
+                    <button type="button" className="btn btn--primary" onClick={submit} disabled={sending}>
+                        {sending ? '전송 중…' : '초대 보내기'}
+                    </button>
+                </>
+            }
+        >
+            <form
+                onSubmit={(e) => {
+                    e.preventDefault();
+                    submit();
+                }}
+                className="col gap-3"
+            >
+                <div>
+                    <label className="field-label">이메일 *</label>
+                    <input
+                        className="input"
+                        type="email"
+                        placeholder="you@ksit.re.kr"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        autoFocus
+                        autoComplete="email"
+                    />
+                </div>
+                <div>
+                    <label className="field-label">부여할 역할</label>
+                    <select
+                        className="select"
+                        style={{ width: '100%' }}
+                        value={role}
+                        onChange={(e) => setRole(e.target.value as Exclude<UserRole, 'pending'>)}
+                    >
+                        {EDITABLE_USER_ROLES.map((r) => (
+                            <option key={r} value={r}>
+                                {USER_ROLE_LABELS[r]}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                <div>
+                    <label className="field-label">안내 메시지 (선택)</label>
+                    <textarea
+                        className="input"
+                        rows={3}
+                        placeholder="초대 메일에 함께 전달할 메시지를 입력하세요"
+                        style={{
+                            width: '100%',
+                            resize: 'vertical',
+                            fontFamily: 'inherit',
+                            padding: '8px 10px',
+                            fontSize: 13,
+                        }}
+                        value={message}
+                        onChange={(e) => setMessage(e.target.value)}
+                    />
+                </div>
+                <button type="submit" style={{ display: 'none' }} aria-hidden="true" tabIndex={-1} />
+            </form>
+        </Modal>
     );
 }
 
@@ -490,7 +823,30 @@ function UserEditDrawer({ user, onClose, onSave }: UserEditDrawerProps) {
                                     fontSize: 12,
                                 }}
                             >
-                                <div className="between">
+                                <div className="between" style={{ gap: 16 }}>
+                                    <span className="faint" style={{ flexShrink: 0 }}>
+                                        소속 기관
+                                    </span>
+                                    <span style={{ textAlign: 'right' }}>{draft.organization || '—'}</span>
+                                </div>
+                                <div className="between" style={{ gap: 16 }}>
+                                    <span className="faint" style={{ flexShrink: 0 }}>
+                                        연락처
+                                    </span>
+                                    <span className="mono">{draft.phone || '미입력'}</span>
+                                </div>
+                                <div className="between" style={{ gap: 16, alignItems: 'flex-start' }}>
+                                    <span className="faint" style={{ flexShrink: 0 }}>
+                                        이용 목적
+                                    </span>
+                                    <span style={{ textAlign: 'right', lineHeight: 1.5 }}>
+                                        {draft.purpose || '—'}
+                                    </span>
+                                </div>
+                                <div
+                                    className="between"
+                                    style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 8 }}
+                                >
                                     <span className="faint">가입일</span>
                                     <span className="mono tabular">{draft.joined}</span>
                                 </div>
