@@ -28,7 +28,7 @@ import {
 } from '@/_ui/hifi';
 import type { MapTool } from '@/_ui/hifi';
 
-import { MOCK_DEFAULT_AOI, MOCK_SCENES } from '../../../../_mocks/scenes';
+import { MOCK_SCENES } from '../../../../_mocks/scenes';
 import { LoadAoiMenu, SaveAoiButton } from '../../_components/SavedAoiControls';
 import { RequestTimelinePanel } from '../../_components/SceneTimelinePanel';
 
@@ -176,7 +176,10 @@ function SearchPageInner() {
 
     const [sceneModal, setSceneModal] = useState<HifiScene | null>(null);
     const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
-    const [aoi, setAoi] = useState<Array<[number, number]> | null>(MOCK_DEFAULT_AOI);
+    // 기본 AOI 없음 — 사용자가 직접 그리거나 좌표를 입력해야 검색을 시작할 수 있다.
+    // (예전에는 MOCK_DEFAULT_AOI 로 포항 영역이 미리 그려져 있었으나, 직접 그리는 흐름을
+    // 확인할 수 있도록 빈 상태로 시작한다.)
+    const [aoi, setAoi] = useState<Array<[number, number]> | null>(null);
     /** 저장된 AOI 메뉴에서 호버 중인 항목. 지도에 임시 미리보기로 그려지지만 검색/필터 상태에는 영향 없음. */
     const [previewAoi, setPreviewAoi] = useState<SavedAoi | null>(null);
     const [activeTool, setActiveTool] = useState<MapTool | undefined>(undefined);
@@ -446,6 +449,20 @@ function SearchPageInner() {
         toast('AOI 해제됨');
     };
 
+    /** 사각형 그리기 모드 진입(검색은 하지 않음). 그리기 완료 시 handleDrawEnd 가 AOI 를 적용한다. */
+    const startDrawAoi = () => {
+        if (activeTool === 'bbox') {
+            // 이미 그리는 중이면 토글로 취소.
+            setActiveTool(undefined);
+            setPendingSearch(false);
+            return;
+        }
+        setPendingSearch(false);
+        setAoiOpen(false);
+        setActiveTool('bbox');
+        toast('지도에서 드래그해 사각형 AOI를 그리세요 · ESC 취소');
+    };
+
     const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
     const safePage = Math.min(page, totalPages);
     const paginated = useMemo(
@@ -642,6 +659,32 @@ function SearchPageInner() {
                                     }}
                                 />
                             </button>
+                            <div className="row gap-2" style={{ marginTop: 8 }}>
+                                <button
+                                    type="button"
+                                    className={`btn btn--sm${activeTool === 'bbox' ? ' btn--primary' : ' btn--outline-accent'}`}
+                                    style={{ flex: 1 }}
+                                    onClick={startDrawAoi}
+                                    aria-pressed={activeTool === 'bbox'}
+                                >
+                                    <Icon name="square" size={13} />
+                                    {activeTool === 'bbox' ? ' 그리는 중… (ESC)' : ' AOI 그리기'}
+                                </button>
+                                {aoi ? (
+                                    <button
+                                        type="button"
+                                        className="btn btn--ghost btn--sm"
+                                        onClick={clearAoi}
+                                    >
+                                        해제
+                                    </button>
+                                ) : null}
+                            </div>
+                            {!aoi && activeTool !== 'bbox' ? (
+                                <div className="faint" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
+                                    검색하려면 먼저 지도에 AOI를 그리거나 좌표를 입력하세요.
+                                </div>
+                            ) : null}
                         </div>
 
                         <FilterDivider />
@@ -1520,6 +1563,14 @@ function SearchPageInner() {
                           <div className="faint" style={{ fontSize: 11, lineHeight: 1.5 }}>
                               지도에서 사각형을 그리거나 좌상단(북서)·우하단(남동) 위경도를 직접 입력하세요.
                           </div>
+                          <button
+                              type="button"
+                              className="btn btn--outline-accent btn--sm"
+                              style={{ width: '100%' }}
+                              onClick={startDrawAoi}
+                          >
+                              <Icon name="square" size={13} /> 지도에 사각형 그리기
+                          </button>
                           <div
                               className="row gap-2"
                               style={{
