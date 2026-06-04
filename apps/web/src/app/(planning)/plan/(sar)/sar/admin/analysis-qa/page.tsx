@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 
-import { Icon, InfoTip, Sparkline, useToast } from '@/_ui/hifi';
+import { Icon, InfoTip, Modal, Sparkline, useToast } from '@/_ui/hifi';
 import {
     composite,
     confidenceOf,
@@ -37,6 +37,7 @@ export default function AnalysisQaPage() {
     const toast = useToast();
     const [selected, setSelected] = useState('pohang-q4');
     const [typeFilter, setTypeFilter] = useState<'전체' | ProductType>('전체');
+    const [glossaryOpen, setGlossaryOpen] = useState(false);
 
     const scored = useMemo(
         () =>
@@ -74,6 +75,14 @@ export default function AnalysisQaPage() {
                     {lowAlerts > 0 ? (
                         <span className="badge badge--danger">저신뢰 {lowAlerts}건</span>
                     ) : null}
+                    <button
+                        type="button"
+                        className="btn btn--sm"
+                        onClick={() => setGlossaryOpen(true)}
+                        data-testid="qa-glossary-btn"
+                    >
+                        <Icon name="info" size={13} /> 지표 설명
+                    </button>
                     <button
                         type="button"
                         className="btn btn--sm"
@@ -208,10 +217,10 @@ export default function AnalysisQaPage() {
                     {/* 선택 산출물 상세 */}
                     <DetailPanel detail={current} />
                 </div>
-
-                {/* QA 지표 설명 */}
-                <MetricGlossary />
             </div>
+
+            {/* QA 지표 설명 — 툴바의 '지표 설명' 버튼으로 모달 오픈 */}
+            {glossaryOpen ? <MetricGlossaryModal onClose={() => setGlossaryOpen(false)} /> : null}
         </div>
     );
 }
@@ -442,21 +451,20 @@ function DetailPanel({ detail }: { detail: Detail }) {
 // QA 지표 설명 (배경 지식)
 // ────────────────────────────────────────────────────────────────────────────
 
-function MetricGlossary() {
+function MetricGlossaryModal({ onClose }: { onClose: () => void }) {
     return (
-        <div className="card">
-            <div className="card__header">
-                <div>
-                    <div className="card__title">QA 지표 설명</div>
-                    <div className="card__subtle">
-                        운영 InSAR에서 가장 어려운 건 변위 계산보다 &ldquo;언제 결과를 믿지 말아야 하는가&rdquo; 판단이다
-                    </div>
-                </div>
-            </div>
-            <div
-                className="card__body"
-                style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}
-            >
+        <Modal
+            title="QA 지표 설명"
+            sub="운영 InSAR에서 가장 어려운 건 변위 계산보다 “언제 결과를 믿지 말아야 하는가” 판단이다"
+            onClose={onClose}
+            size="lg"
+            footer={(close) => (
+                <button type="button" className="btn btn--primary" onClick={close}>
+                    닫기
+                </button>
+            )}
+        >
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
                 {QA_GLOSSARY.map((g) => (
                     <div
                         key={g.title}
@@ -479,6 +487,6 @@ function MetricGlossary() {
                     </div>
                 ))}
             </div>
-        </div>
+        </Modal>
     );
 }

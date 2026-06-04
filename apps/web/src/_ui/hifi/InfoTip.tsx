@@ -48,36 +48,78 @@ export function InfoTip({ text, size = 13, placement = 'right', style, trigger =
         const r = ref.current.getBoundingClientRect();
         const cx = r.left + r.width / 2;
         const cy = r.top + r.height / 2;
+        let base: Coords;
         switch (placement) {
             case 'top':
-                return {
+                base = {
                     top: r.top - 6,
                     left: cx,
                     transform: 'translate(-50%, -100%)',
                     transformHidden: `translate(-50%, calc(-100% + ${ENTER_OFFSET}px))`,
                 };
+                break;
             case 'bottom':
-                return {
+                base = {
                     top: r.bottom + 6,
                     left: cx,
                     transform: 'translate(-50%, 0)',
                     transformHidden: `translate(-50%, -${ENTER_OFFSET}px)`,
                 };
+                break;
             case 'left':
-                return {
+                base = {
                     top: cy,
                     left: r.left - 8,
                     transform: 'translate(-100%, -50%)',
                     transformHidden: `translate(calc(-100% + ${ENTER_OFFSET}px), -50%)`,
                 };
+                break;
             default:
-                return {
+                base = {
                     top: cy,
                     left: r.right + 8,
                     transform: 'translate(0, -50%)',
                     transformHidden: `translate(-${ENTER_OFFSET}px, -50%)`,
                 };
         }
+        // 팝오버가 이미 그려져 크기를 알 수 있으면 화면 밖으로 나가지 않도록 anchor 를 보정한다.
+        // transform 은 유지한 채 top/left 만 밀어 넣어, 진입 애니메이션/정렬을 깨지 않는다.
+        const pop = popoverRef.current;
+        if (pop) {
+            const w = pop.offsetWidth;
+            const h = pop.offsetHeight;
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+            const m = 8;
+            // 현재 transform 기준으로 박스의 좌상단 위치를 역산.
+            let boxLeft: number;
+            let boxTop: number;
+            switch (placement) {
+                case 'top':
+                    boxLeft = base.left - w / 2;
+                    boxTop = base.top - h;
+                    break;
+                case 'bottom':
+                    boxLeft = base.left - w / 2;
+                    boxTop = base.top;
+                    break;
+                case 'left':
+                    boxLeft = base.left - w;
+                    boxTop = base.top - h / 2;
+                    break;
+                default:
+                    boxLeft = base.left;
+                    boxTop = base.top - h / 2;
+            }
+            let dx = 0;
+            let dy = 0;
+            if (boxLeft < m) dx = m - boxLeft;
+            else if (boxLeft + w > vw - m) dx = vw - m - (boxLeft + w);
+            if (boxTop < m) dy = m - boxTop;
+            else if (boxTop + h > vh - m) dy = vh - m - (boxTop + h);
+            base = { ...base, left: base.left + dx, top: base.top + dy };
+        }
+        return base;
     };
 
     useLayoutEffect(() => {
@@ -92,6 +134,8 @@ export function InfoTip({ text, size = 13, placement = 'right', style, trigger =
             // 두 프레임 뒤에 visible=true → 마운트 직후 hidden 상태가 그려진 뒤 transition 발동
             let raf2 = 0;
             const raf1 = requestAnimationFrame(() => {
+                // 팝오버가 그려진 뒤(크기 측정 가능) 좌표를 재계산 → 화면 밖이면 보정.
+                setCoords(computeCoords());
                 raf2 = requestAnimationFrame(() => setVisible(true));
             });
             return () => {
