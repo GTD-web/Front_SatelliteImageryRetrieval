@@ -33,7 +33,7 @@ import { LabeledInput, NumberField, Section, typeBadge } from '../_shared';
 type AnalysisType = 'DInSAR' | 'PSInSAR' | 'SBAS';
 
 /** 폼 검증 실패 시 어느 입력이 문제인지 + 메시지. 토스트와 인라인 표시에 공용. */
-type FieldErrorKey = 'name' | 'aoi' | 'mission' | 'layers' | 'reference' | 'scenes';
+type FieldErrorKey = 'name' | 'aoi' | 'mission' | 'reference' | 'scenes';
 interface FieldError {
     field: FieldErrorKey;
     message: string;
@@ -75,7 +75,6 @@ interface RequestForm {
     s1a: boolean;
     s1c: boolean;
     polarization: string;
-    layers: Set<string>;
     coherenceMin: number;
     temporalBaselineMaxDays: number;
     spatialBaselineMaxM: number;
@@ -103,7 +102,6 @@ function buildDefaultRequest(): RequestForm {
         s1a: true,
         s1c: false,
         polarization: 'VV+VH',
-        layers: new Set(['mean_velocity', 'coherence']),
         coherenceMin: 0.3,
         temporalBaselineMaxDays: 60,
         spatialBaselineMaxM: 200,
@@ -112,54 +110,6 @@ function buildDefaultRequest(): RequestForm {
         referenceLon: '',
         referenceLat: '',
     };
-}
-
-// 산출 레이어 미리보기 — 각 산출물의 대표 색상표/패턴을 CSS 그라디언트로 표현(외부 이미지 의존 없음).
-const LAYER_PREVIEW: Record<string, { bg: string; alt: string }> = {
-    mean_velocity: {
-        bg:
-            'radial-gradient(circle at 68% 64%, #b2182b 0%, rgba(178,24,43,0) 52%), ' +
-            'radial-gradient(circle at 28% 36%, #2166ac 0%, rgba(33,102,172,0) 55%), ' +
-            'linear-gradient(90deg, #4393c3, #f7f7f7, #d6604d)',
-        alt: '평균 속도 (mm/yr) — RdBu 발산형: 적=융기/접근, 청=침하/이격',
-    },
-    coherence: {
-        bg:
-            'repeating-linear-gradient(118deg, rgba(255,255,255,0.07) 0 1.5px, transparent 1.5px 4px), ' +
-            'linear-gradient(90deg, #440154, #3b528b, #21908d, #5dc863, #fde725)',
-        alt: 'coherence (0–1) — viridis: 밝을수록 신뢰 높음',
-    },
-    cumulative_disp: {
-        bg:
-            'radial-gradient(ellipse at 50% 62%, #313695 0%, #4575b4 22%, #91bfdb 42%, #fee090 68%, #f46d43 86%, #a50026 100%)',
-        alt: '누적 변위 (mm) — spectral, 변형 bowl 형상',
-    },
-    wrapped_phase: {
-        bg:
-            'repeating-linear-gradient(45deg, #ff3b3b 0 5px, #ffd23b 5px 10px, #3bff6b 10px 15px, #3bd0ff 15px 20px, #6b3bff 20px 25px, #ff3bd0 25px 30px)',
-        alt: 'wrapped phase (rad) — -π~π 순환 fringe 패턴',
-    },
-};
-
-/** 산출 레이어 썸네일 — 대표 색상표/패턴 미리보기. */
-function LayerPreview({ layerKey }: { layerKey: string }) {
-    const p = LAYER_PREVIEW[layerKey];
-    if (!p) return null;
-    return (
-        <span
-            aria-label={p.alt}
-            title={p.alt}
-            style={{
-                flexShrink: 0,
-                width: 40,
-                height: 24,
-                borderRadius: 4,
-                background: p.bg,
-                border: '1px solid var(--border-default)',
-                boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.18)',
-            }}
-        />
-    );
 }
 
 function parseAoiFromForm(f: RequestForm): Array<[number, number]> | null {
@@ -653,14 +603,6 @@ function InsarRequestPageInner() {
             });
         }
     };
-    const toggleRequestLayer = (k: string) => {
-        setRequest((f) => {
-            const next = new Set(f.layers);
-            if (next.has(k)) next.delete(k);
-            else next.add(k);
-            return { ...f, layers: next };
-        });
-    };
     // 폼(메타) 검증 — scene 선택을 제외한 입력값. "이미지 선택" 단계에서 확인.
     const validateForm = (): FieldError | null => {
         if (!request.name.trim()) return { field: 'name', message: '분석 이름을 입력해주세요' };
@@ -670,8 +612,6 @@ function InsarRequestPageInner() {
                 message: 'AOI 좌표를 확인해주세요 (NW 가 SE 보다 북서쪽이어야 합니다)',
             };
         if (!request.s1a && !request.s1c) return { field: 'mission', message: '미션을 하나 이상 선택해주세요' };
-        if (request.layers.size === 0)
-            return { field: 'layers', message: '산출 레이어를 하나 이상 선택해주세요' };
         if (
             request.type === 'PSInSAR' &&
             request.referenceMode === 'manual' &&
@@ -742,7 +682,6 @@ function InsarRequestPageInner() {
                         form={request}
                         onChangeField={updateRequest}
                         onChangeType={setRequestType}
-                        onToggleLayer={toggleRequestLayer}
                         selectedCount={selectedSceneIds.size}
                         availableCount={availableScenes.length}
                         submitting={submitting}
@@ -1262,7 +1201,6 @@ interface RequestSidebarProps {
     form: RequestForm;
     onChangeField: <K extends keyof RequestForm>(key: K, value: RequestForm[K]) => void;
     onChangeType: (t: AnalysisType) => void;
-    onToggleLayer: (k: string) => void;
     selectedCount: number;
     availableCount: number;
     submitting: boolean;
@@ -1294,7 +1232,6 @@ function RequestSidebar({
     form,
     onChangeField,
     onChangeType,
-    onToggleLayer,
     selectedCount,
     availableCount,
     submitting,
@@ -1715,67 +1652,8 @@ function RequestSidebar({
                     </Section>
                 ) : null}
 
-                <Section title="산출 레이어" hint="썸네일은 각 산출물의 대표 색상표·패턴 예시입니다.">
-                    <div className="col gap-2">
-                        {(
-                            [
-                                [
-                                    'mean_velocity',
-                                    'mean_velocity',
-                                    'mm/yr',
-                                    '분석 기간 동안의 평균 LOS 변위 속도. 양수=위성 방향으로 접근, 음수=멀어짐. 가장 일반적으로 쓰이는 산출물.',
-                                ],
-                                [
-                                    'coherence',
-                                    'coherence',
-                                    '0–1',
-                                    'interferogram 페어 / PS 의 평균 코히어런스 맵 (0~1). 분석 결과의 신뢰도/유효 영역을 판단하는 데 사용.',
-                                ],
-                                [
-                                    'cumulative_disp',
-                                    'cumulative_disp',
-                                    'mm',
-                                    '기준 epoch 부터의 누적 LOS 변위. 시계열로 변위 진행을 보여주며, 산사태/지반 침하 추적에 사용.',
-                                ],
-                                [
-                                    'wrapped_phase',
-                                    'wrapped_phase',
-                                    'rad',
-                                    '위상 차이를 -π~π 로 wrap 한 raw 결과. fringe 패턴 시각화 / unwrap 전 진단용.',
-                                ],
-                            ] as const
-                        ).map(([k, label, unit, desc]) => {
-                            const on = form.layers.has(k);
-                            return (
-                                <label
-                                    key={k}
-                                    className="row gap-2"
-                                    style={{ cursor: 'pointer', alignItems: 'center' }}
-                                >
-                                    <input
-                                        type="checkbox"
-                                        className="checkbox"
-                                        checked={on}
-                                        onChange={() => onToggleLayer(k)}
-                                    />
-                                    <LayerPreview layerKey={k} />
-                                    <span className="mono" style={{ fontSize: 12, fontWeight: on ? 600 : 400 }}>
-                                        {label}
-                                    </span>
-                                    <span
-                                        className="faint"
-                                        style={{ fontSize: 11, marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                                    >
-                                        {unit}
-                                        <InfoTip text={desc} size={11} placement="left" />
-                                    </span>
-                                </label>
-                            );
-                        })}
-                    </div>
-                    <FieldErrorMsg show={fieldError?.field === 'layers'} message={fieldError?.message} />
-                </Section>
-
+                {/* 산출 레이어는 분석 시 전부 생성된다. 어떤 레이어를 볼지는 결과 조회 화면에서 전환한다
+                    (results/page.tsx 의 "레이어" 섹션). 요청 단계에서는 선택을 받지 않는다. */}
             </div>
 
             {/* scene 선택 탭 — 폼과 같은 위치에 배치되며 탭으로 토글된다.
