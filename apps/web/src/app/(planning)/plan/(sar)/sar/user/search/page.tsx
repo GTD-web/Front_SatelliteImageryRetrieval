@@ -251,14 +251,25 @@ function SearchPageInner() {
             if (!rect) return;
             const POP_W = 320;
             const viewportW = window.innerWidth;
+            const viewportH = window.innerHeight;
             let left = rect.left;
             if (left + POP_W > viewportW - 8) left = Math.max(8, viewportW - POP_W - 8);
-            setAoiPopPos({ top: rect.bottom + 6, left });
+            // 세로 보정 — 팝오버가 길어 화면 아래로 넘치면 위로 뒤집고, 그래도 부족하면 클램프.
+            const POP_H = aoiPopRef.current?.offsetHeight ?? 460;
+            let top = rect.bottom + 6;
+            if (top + POP_H > viewportH - 8) {
+                const above = rect.top - POP_H - 6;
+                top = above >= 8 ? above : Math.max(8, viewportH - POP_H - 8);
+            }
+            setAoiPopPos({ top, left });
         };
         compute();
+        // 팝오버가 그려진 뒤 실제 높이로 한 번 더 보정.
+        const raf = requestAnimationFrame(compute);
         window.addEventListener('resize', compute);
         window.addEventListener('scroll', compute, true);
         return () => {
+            cancelAnimationFrame(raf);
             window.removeEventListener('resize', compute);
             window.removeEventListener('scroll', compute, true);
         };

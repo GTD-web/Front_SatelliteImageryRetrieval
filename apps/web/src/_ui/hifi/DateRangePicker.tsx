@@ -84,14 +84,25 @@ export function DateRangePicker({ start, end, onChange, maxDate, minDate }: Prop
             if (!rect) return;
             const POP_W = 288;
             const viewportW = window.innerWidth;
+            const viewportH = window.innerHeight;
             let left = rect.left;
             if (left + POP_W > viewportW - 8) left = Math.max(8, viewportW - POP_W - 8);
-            setPopPos({ top: rect.bottom + 6, left });
+            // 세로 보정 — 아래로 펼치면 화면 밑으로 넘칠 때 위로 뒤집고, 그래도 부족하면 클램프.
+            const POP_H = popRef.current?.offsetHeight ?? 340;
+            let top = rect.bottom + 6;
+            if (top + POP_H > viewportH - 8) {
+                const above = rect.top - POP_H - 6;
+                top = above >= 8 ? above : Math.max(8, viewportH - POP_H - 8);
+            }
+            setPopPos({ top, left });
         };
         compute();
+        // 팝오버가 그려진 뒤(실제 높이 측정 가능) 한 번 더 보정.
+        const raf = requestAnimationFrame(compute);
         window.addEventListener('resize', compute);
         window.addEventListener('scroll', compute, true);
         return () => {
+            cancelAnimationFrame(raf);
             window.removeEventListener('resize', compute);
             window.removeEventListener('scroll', compute, true);
         };
