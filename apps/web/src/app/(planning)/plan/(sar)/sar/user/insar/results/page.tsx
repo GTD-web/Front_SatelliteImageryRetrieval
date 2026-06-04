@@ -462,8 +462,6 @@ export default function InsarResultsPage() {
                         onOpacityChange={setOpacity}
                         rangeMin={rangeMin}
                         rangeMax={rangeMax}
-                        onRangeMinChange={setRangeMin}
-                        onRangeMaxChange={setRangeMax}
                         currentProduct={product}
                         onShowScenes={() => setShowScenes(true)}
                         onDownload={() =>
@@ -555,8 +553,6 @@ interface ResultsSidebarProps {
     onOpacityChange: (n: number) => void;
     rangeMin: number;
     rangeMax: number;
-    onRangeMinChange: (n: number) => void;
-    onRangeMaxChange: (n: number) => void;
     currentProduct: InsarProduct;
     onShowScenes: () => void;
     onDownload: () => void;
@@ -580,8 +576,6 @@ function ResultsSidebar({
     onOpacityChange,
     rangeMin,
     rangeMax,
-    onRangeMinChange,
-    onRangeMaxChange,
     currentProduct,
     onShowScenes,
     onDownload,
@@ -733,23 +727,6 @@ function ResultsSidebar({
                         <span>{rangeMin}</span>
                         <span>0</span>
                         <span>+{rangeMax}</span>
-                    </div>
-                </Section>
-
-                <Section title={`범위 (${LAYER_META[layer].unit})`}>
-                    <div className="input-group">
-                        <input
-                            className="input mono tabular"
-                            type="number"
-                            value={rangeMin}
-                            onChange={(e) => onRangeMinChange(+e.target.value)}
-                        />
-                        <input
-                            className="input mono tabular"
-                            type="number"
-                            value={rangeMax}
-                            onChange={(e) => onRangeMaxChange(+e.target.value)}
-                        />
                     </div>
                 </Section>
 
