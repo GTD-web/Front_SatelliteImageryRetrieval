@@ -993,7 +993,7 @@ function QaSummarySection({ productId }: { productId: string }) {
     return (
         <Section
             title="분석 신뢰도"
-            info="InSAR 결과는 변위가 커도 신뢰도가 낮을 수 있다. 코히런스·언랩·네트워크·대기영향·잔차를 합성한 점수다. 점수가 낮으면 결과를 그대로 믿지 말 것."
+            info="InSAR 결과는 변위가 커도 신뢰도가 낮을 수 있습니다. 코히런스·언랩·네트워크·대기 영향·잔차를 가중 합성한 점수입니다. 점수가 낮으면 결과를 그대로 믿지 않는 것이 좋습니다."
         >
             <div className="col gap-2">
                 <div className="between" style={{ alignItems: 'center' }}>
@@ -1038,7 +1038,7 @@ function QaSummarySection({ productId }: { productId: string }) {
                             <InfoTip
                                 trigger="hover"
                                 placement="top"
-                                text="artifact(허상): 실제 지표 변위가 아니라 코히런스 저하·위상 언랩 오류 등 처리 과정에서 생긴 가짜 신호. 진짜 침하/융기로 해석하면 안 됩니다."
+                                text="artifact(허상)는 실제 지표 변위가 아니라 코히런스 저하·위상 언랩 오류 등 처리 과정에서 생긴 가짜 신호입니다. 진짜 침하/융기로 해석하면 안 됩니다."
                             >
                                 artifact
                             </InfoTip>
