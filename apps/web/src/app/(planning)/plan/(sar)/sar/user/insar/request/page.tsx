@@ -325,6 +325,20 @@ function isLowQualityScene(s: AvailableScene, refPerp: number): boolean {
 }
 
 /**
+ * scene 취득일의 식생 상태(한국 중부 기준 근사) — coherence "예측"용.
+ * SDK_Snap docs/education/03_coherence_phenology: C-band coherence 의 지배 요인은
+ * 달력 간격이 아니라 두 시점의 식생 phenology 다. leaf-out 전이기(4월 중순~5월 초)를
+ * 양쪽에서 가르거나 식생 상태가 다른 페어는 coherence 가 0.2 이하로 붕괴한다.
+ */
+function vegState(isoDate: string): 'bare' | 'transition' | 'leaf' {
+    const d = new Date(isoDate);
+    const mmdd = (d.getMonth() + 1) * 100 + d.getDate();
+    if (mmdd >= 410 && mmdd <= 505) return 'transition'; // leaf-out 전이기 (치명적)
+    if (mmdd > 505 && mmdd <= 1031) return 'leaf'; // full-leaf (초여름~가을)
+    return 'bare'; // 늦가을~초봄 (낙엽/겨울)
+}
+
+/**
  * 스택의 기준(super-master) scene id — 기준 대비 |B⊥| 분산을 최소화하도록 perpBaseline 중앙값 scene 선택.
  * 실제 백엔드(GET /api/v1/baseline)에서는 정밀궤도 기반으로 기준·상대 B⊥ 를 계산해 내려준다.
  */
@@ -1134,22 +1148,28 @@ function analysisRangeWarnings(form: RequestForm, availableCount: number): Range
     const out: RangeWarning[] = [];
 
     if (form.type === 'SBAS') {
-        // SBAS velocity 는 시계열 길이에 민감 — 4~5년 이상 권장.
-        if (spanYears < 2) {
+        // SBAS velocity 는 시계열 길이에 민감하다. SDK_Snap 실측 기준(docs/education/08_sbas_concept):
+        // velocity(mm/yr) 숫자 해석은 최소 6개월·권장 1년 이상, 그 이전엔 추세(부호·상대크기) 지표로만.
+        if (spanDays < 180) {
             out.push({
                 tone: 'danger',
-                text: `SBAS 는 안정적인 velocity 추정에 보통 4~5년 이상 시계열을 권장합니다. 현재 약 ${spanLabel} — 0~1 mm/yr 미세 신호가 대기·계절 오차에 묻혀 신뢰가 어렵습니다.`,
+                text: `현재 약 ${spanLabel} — SBAS velocity 산출에는 최소 6개월 이상의 시계열이 필요합니다. 이보다 짧으면 추세 판단도 어렵습니다.`,
             });
-        } else if (spanYears < 4) {
+        } else if (spanYears < 1) {
             out.push({
                 tone: 'warning',
-                text: `현재 약 ${spanLabel} — 권장 하한(4~5년) 미만입니다. 기간을 늘리면 velocity 신뢰도가 크게 올라갑니다.`,
+                text: `현재 약 ${spanLabel} — velocity(mm/yr) 숫자 해석은 1년 이상을 권장합니다. 이 구간은 추세(부호·상대 크기) 지표로만 신뢰하세요.`,
+            });
+        } else if (spanYears < 2) {
+            out.push({
+                tone: 'warning',
+                text: `현재 약 ${spanLabel} — velocity 해석이 가능한 구간입니다. 0~1 mm/yr 미세 변위·계절 평균화에는 2~3년 이상이 더 유리합니다.`,
             });
         }
-        if (availableCount > 0 && availableCount < 50) {
+        if (availableCount > 0 && availableCount < 20) {
             out.push({
                 tone: 'warning',
-                text: `가용 scene ${availableCount}장 — SBAS 는 촘촘한 interferogram 망을 위해 보통 수십 장 이상이 유리합니다 (5년·12일이면 ~150장).`,
+                text: `가용 scene ${availableCount}장 — SBAS 는 15~20장이면 가능하나, 촘촘한 interferogram 망에는 수십 장 이상이 유리합니다.`,
             });
         }
     }
@@ -1899,15 +1919,20 @@ function ScenePickerInline({
         const picks = scenes.filter((s) => selected.has(s.id));
         if (picks.length < 2) return null;
         if (analysisType === 'DInSAR' && picks.length === 2) {
-            // 처리 전이라 실측 coherence 는 알 수 없음 — 두 scene 의 시간 간격(temporal baseline)으로만
-            // 가늠한다. Sentinel-1 재방문 12일, 2주기 24일까지는 양호로 본다.
+            // 처리 전이라 실측 coherence 는 알 수 없다 — 두 지표로 "예측"만 한다:
+            //  (1) temporal baseline(ΔT): 12·24일까지 양호, 길수록 시간 탈상관.
+            //  (2) 식생 phenology(계절): 한국 봄 leaf-out 전이기를 양쪽에서 가르거나
+            //      식생 상태가 다르면 C-band coherence 급락 (SDK_Snap 03_coherence_phenology).
             const t0 = new Date(picks[0]!.isoDate).getTime();
             const t1 = new Date(picks[1]!.isoDate).getTime();
             const days = Math.round(Math.abs(t1 - t0) / (24 * 60 * 60 * 1000));
-            const quality = days <= 24 ? 'good' : 'caution';
+            const v0 = vegState(picks[0]!.isoDate);
+            const v1 = vegState(picks[1]!.isoDate);
+            const phenologyRisk = v0 === 'transition' || v1 === 'transition' || v0 !== v1;
+            const quality = days <= 24 && !phenologyRisk ? 'good' : 'caution';
             // DInSAR 은 master 가 곧 기준 — 페어 B⊥ = 두 scene perpBaseline 차이.
             const perp = Math.abs(picks[0]!.perpBaseline - picks[1]!.perpBaseline);
-            return { mode: 'pair' as const, days, quality, perp };
+            return { mode: 'pair' as const, days, quality, perp, phenologyRisk };
         }
         // 스택: 각 scene 의 기준 대비 |B⊥| 분포.
         const abs = picks.map((s) => Math.abs(relPerpBaseline(s, refPerp)));
@@ -2011,12 +2036,15 @@ function ScenePickerInline({
                                 <span style={{ color: 'var(--text-tertiary)' }}>
                                     ·{' '}
                                     {baselineSummary.quality === 'good'
-                                        ? 'coherence 양호'
-                                        : 'coherence 주의'}
+                                        ? 'coherence(예측) 양호'
+                                        : baselineSummary.phenologyRisk
+                                          ? 'coherence(예측) 주의 · 식생 변화기'
+                                          : 'coherence(예측) 주의'}
                                 </span>{' '}
                                 <span style={{ color: 'var(--text-tertiary)' }}>
                                     · B⊥ {baselineSummary.perp}m
-                                </span>
+                                </span>{' '}
+                                <InfoTip text="coherence 는 실측이 아니라 시간 간격(ΔT)과 계절(식생 phenology) 기반 예측입니다. 실제 값은 간섭도 처리 후에 확인됩니다." />
                             </>
                         ) : (
                             <>
@@ -2032,11 +2060,11 @@ function ScenePickerInline({
                     ? (() => {
                           const pct = Math.round(dinsarOverlap);
                           const tone =
-                              pct >= 80
-                                  ? { color: 'var(--success)', label: '안정' }
+                              pct >= 90
+                                  ? { color: 'var(--success)', label: '동일 track · InSAR 가능' }
                                   : pct >= 70
-                                    ? { color: 'var(--warning)', label: '권장 하한' }
-                                    : { color: 'var(--danger)', label: '낮음' };
+                                    ? { color: 'var(--warning)', label: '정렬 약간 어긋남' }
+                                    : { color: 'var(--danger)', label: 'track 상이 가능 · 확인 필요' };
                           return (
                               <div
                                   className="between"
@@ -2051,18 +2079,15 @@ function ScenePickerInline({
                                   }}
                               >
                                   <span className="row gap-2" style={{ alignItems: 'center' }}>
-                                      <span className="faint">master/slave 겹침</span>
-                                      <span
-                                          className="mono tabular"
-                                          style={{ color: tone.color, fontWeight: 600 }}
-                                      >
-                                          {pct}%
+                                      <span className="faint">InSAR 적합성</span>
+                                      <span style={{ color: tone.color, fontWeight: 600, fontSize: 11 }}>
+                                          {tone.label}
                                       </span>
-                                      <span style={{ color: tone.color, fontSize: 10.5 }}>
-                                          · {tone.label}
+                                      <span className="mono tabular faint" style={{ fontSize: 10 }}>
+                                          겹침 {pct}%
                                       </span>
                                   </span>
-                                  <InfoTip text="DInSAR 권장 겹침: ≥80% 안정 / 70~80% 권장 하한 / <70% 분석 가용 면적이 좁음. 정보용이며 제출은 가능합니다." />
+                                  <InfoTip text="InSAR 는 동일 track/slice 의 repeat-pass 페어에서만 가능합니다. footprint 겹침(bbox 근사)은 track 일치의 보조 지표로, 동일 track 이면 보통 ≥90% 이고 낮으면 track/slice 가 다를 수 있습니다. 정보용이며 제출은 가능합니다." />
                               </div>
                           );
                       })()
