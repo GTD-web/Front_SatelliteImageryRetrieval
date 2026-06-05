@@ -1566,6 +1566,8 @@ function RequestSidebar({
                     </div>
                 </Section>
 
+                <AutoParamsSection form={form} availableCount={availableCount} />
+
                 {/* 분석 이름 / 기간 — 각각 한 행씩 세로로 구분 */}
                 <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-subtle)' }}>
                     <div className="col gap-3">
@@ -1683,8 +1685,6 @@ function RequestSidebar({
                     </div>
                     <FieldErrorMsg show={fieldError?.field === 'mission'} message={fieldError?.message} />
                 </Section>
-
-                <AutoParamsSection form={form} availableCount={availableCount} />
 
                 {/* 산출 레이어는 분석 시 전부 생성된다. 어떤 레이어를 볼지는 결과 조회 화면에서 전환한다
                     (results/page.tsx 의 "레이어" 섹션). 요청 단계에서는 선택을 받지 않는다. */}
