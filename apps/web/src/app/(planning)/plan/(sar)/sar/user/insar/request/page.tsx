@@ -2042,8 +2042,6 @@ function ScenePickerInline({
                         const isSel = selected.has(s.id);
                         const isHov = hoveredId === s.id;
                         const isRef = !isDinsar && s.id === referenceId;
-                        // 순서 칩은 DInSAR(master/slave) 에서만 의미가 있다.
-                        const order = isDinsar && isSel ? Array.from(selected).indexOf(s.id) + 1 : null;
                         // opt-out: SBAS/PSInSAR 은 미선택 = 스택에서 제외된 날짜.
                         const excluded = !isDinsar && !isSel;
                         // 기준 대비 B⊥ (스택). DInSAR 은 기준이 없어 행에 표시하지 않는다.
@@ -2086,28 +2084,6 @@ function ScenePickerInline({
                                     onClick={(e) => e.stopPropagation()}
                                     style={{ flexShrink: 0 }}
                                 />
-                                {/* SLC 는 미리보기 미지원 — DInSAR 은 선택 순서 칩, 그 외엔 생략. */}
-                                {order ? (
-                                    <span
-                                        title={`선택 순서: ${order}`}
-                                        style={{
-                                            flexShrink: 0,
-                                            width: 22,
-                                            height: 22,
-                                            borderRadius: '50%',
-                                            background: 'var(--accent)',
-                                            color: '#fff',
-                                            fontSize: 11,
-                                            fontWeight: 700,
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            fontFamily: 'var(--font-mono)',
-                                        }}
-                                    >
-                                        {order}
-                                    </span>
-                                ) : null}
                                 <div className="col" style={{ flex: 1, gap: 2, minWidth: 0 }}>
                                     <div className="row gap-2" style={{ alignItems: 'center' }}>
                                         <span
