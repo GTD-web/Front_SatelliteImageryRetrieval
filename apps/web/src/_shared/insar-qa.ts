@@ -179,7 +179,7 @@ export const METRIC_DEFS: MetricDef[] = [
     {
         key: 'coherence',
         label: '코히런스',
-        info: '두 시점이 같은 산란체를 보는 정도(0~1). 1에 가까울수록 위상이 안정적이다. 식생·강우·시간 경과로 떨어진다.',
+        info: '두 시점이 같은 산란체를 보는 정도(0~1)를 나타냅니다. 1에 가까울수록 위상이 안정적입니다. 식생·강우·시간 경과로 떨어집니다.',
         fmt: (v) => v.toFixed(2),
         norm: (v) => v,
         grade: (v) => (v >= 0.7 ? 'good' : v >= 0.4 ? 'usable' : 'risk'),
@@ -188,7 +188,7 @@ export const METRIC_DEFS: MetricDef[] = [
     {
         key: 'temporalCoherence',
         label: '시계열 코히런스',
-        info: '전체 관측 기간 동안 픽셀이 얼마나 일관되게 안정적인가. PS 후보 판정의 핵심 지표.',
+        info: '전체 관측 기간 동안 픽셀이 얼마나 일관되게 안정적인지를 나타냅니다. PS 후보 판정의 핵심 지표입니다.',
         fmt: (v) => v.toFixed(2),
         norm: (v) => v,
         grade: (v) => (v >= 0.7 ? 'good' : v >= 0.45 ? 'usable' : 'risk'),
@@ -197,7 +197,7 @@ export const METRIC_DEFS: MetricDef[] = [
     {
         key: 'unwrapQuality',
         label: '언랩 품질',
-        info: 'phase unwrapping 신뢰도. residue density와 phase 연속성으로 합성. 낮으면 2π jump·island artifact 위험.',
+        info: 'phase unwrapping(위상 펼침)의 신뢰도입니다. residue density와 phase 연속성으로 합성합니다. 낮으면 2π jump·island artifact 위험이 있습니다.',
         fmt: (v) => v.toFixed(2),
         norm: (v) => v,
         grade: (v) => (v >= 0.75 ? 'good' : v >= 0.5 ? 'usable' : 'risk'),
@@ -206,7 +206,7 @@ export const METRIC_DEFS: MetricDef[] = [
     {
         key: 'connectedRatio',
         label: 'Connected 비율',
-        info: 'SNAPHU connected component 중 신뢰 가능한 영역의 비율. 낮으면 disconnected island가 많아 부분적으로만 신뢰 가능.',
+        info: 'SNAPHU connected component 중 신뢰 가능한 영역의 비율입니다. 낮으면 disconnected island가 많아 부분적으로만 신뢰할 수 있습니다.',
         fmt: (v) => `${Math.round(v * 100)}%`,
         norm: (v) => v,
         grade: (v) => (v >= 0.85 ? 'good' : v >= 0.6 ? 'usable' : 'risk'),
@@ -215,7 +215,7 @@ export const METRIC_DEFS: MetricDef[] = [
     {
         key: 'networkStability',
         label: '네트워크 안정성',
-        info: 'SBAS interferogram 그래프의 redundancy·connectivity. 낮으면 시계열 inversion 자체가 불안정. DInSAR 단일 페어에는 해당 없음.',
+        info: 'SBAS interferogram 그래프의 redundancy·connectivity를 나타냅니다. 낮으면 시계열 inversion 자체가 불안정합니다. DInSAR 단일 페어에는 해당하지 않습니다.',
         fmt: (v) => v.toFixed(2),
         norm: (v) => v,
         grade: (v) => (v >= 0.7 ? 'good' : v >= 0.45 ? 'usable' : 'risk'),
@@ -225,7 +225,7 @@ export const METRIC_DEFS: MetricDef[] = [
     {
         key: 'apsContamination',
         label: '대기 영향(APS)',
-        info: '대기 수증기·기압에 의한 위상 오염도. 실제 변형처럼 보이는 가짜 신호의 주범. 산악·습윤 지역에서 큼. 낮을수록 좋다.',
+        info: '대기 수증기·기압에 의한 위상 오염도입니다. 실제 변형처럼 보이는 가짜 신호의 주범입니다. 산악·습윤 지역에서 큽니다. 낮을수록 좋습니다.',
         fmt: (v) => v.toFixed(2),
         norm: (v) => 1 - v, // 낮을수록 좋으므로 막대는 반전
         grade: (v) => (v <= 0.25 ? 'good' : v <= 0.5 ? 'usable' : 'risk'),
@@ -234,7 +234,7 @@ export const METRIC_DEFS: MetricDef[] = [
     {
         key: 'residualMm',
         label: '시계열 잔차',
-        info: 'SBAS inversion 후 예측 위상과 실측 위상의 RMSE(mm). 크면 noise·unwrap error·APS가 섞여 있다는 뜻. 낮을수록 좋다.',
+        info: 'SBAS inversion 후 예측 위상과 실측 위상의 RMSE(mm)입니다. 크면 noise·unwrap error·APS가 섞여 있다는 뜻입니다. 낮을수록 좋습니다.',
         fmt: (v) => `${v.toFixed(1)} mm`,
         norm: (v) => clamp01(1 - v / 8),
         grade: (v) => (v <= 2.5 ? 'good' : v <= 5 ? 'usable' : 'risk'),
