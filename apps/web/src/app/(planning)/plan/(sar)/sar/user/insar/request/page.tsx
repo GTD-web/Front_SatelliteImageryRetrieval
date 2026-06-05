@@ -110,6 +110,8 @@ interface RequestForm {
     seLon: string;
     startDate: Date;
     endDate: Date;
+    /** 위성 플랫폼 — Sentinel-1(s1a/s1c 미션 선택) vs NISAR(L-band 단일 위성). */
+    platform: 'S1' | 'NISAR';
     s1a: boolean;
     s1c: boolean;
     polarization: string;
@@ -137,6 +139,7 @@ function buildDefaultRequest(): RequestForm {
         seLon: '129.45',
         startDate: start,
         endDate: end,
+        platform: 'S1',
         s1a: true,
         s1c: false,
         ...AUTO_PARAMS.DInSAR,
@@ -244,7 +247,7 @@ interface AvailableScene {
     id: string;
     date: string;
     isoDate: string;
-    mission: 'S1A' | 'S1C';
+    mission: 'S1A' | 'S1C' | 'NISAR';
     pass: 'ASC' | 'DESC';
     /** 가상 perpendicular baseline (m), -200~+200 범위 */
     perpBaseline: number;
@@ -257,9 +260,14 @@ interface AvailableScene {
 function generateAvailableScenes(form: RequestForm): AvailableScene[] {
     const aoi = parseAoiFromForm(form);
     if (!aoi) return [];
-    const missions: ('S1A' | 'S1C')[] = [];
-    if (form.s1a) missions.push('S1A');
-    if (form.s1c) missions.push('S1C');
+    const missions: ('S1A' | 'S1C' | 'NISAR')[] = [];
+    if (form.platform === 'NISAR') {
+        // NISAR — 단일 위성. L-band RSLC 로 repeat-pass InSAR 스택을 구성한다.
+        missions.push('NISAR');
+    } else {
+        if (form.s1a) missions.push('S1A');
+        if (form.s1c) missions.push('S1C');
+    }
     if (missions.length === 0) return [];
     const day = 24 * 60 * 60 * 1000;
     // 고정 anchor 기준 cadence — startDate 가 바뀌어도 각 scene 의 절대 위치(t, id, perp, offset) 는 불변.
@@ -283,8 +291,12 @@ function generateAvailableScenes(form: RequestForm): AvailableScene[] {
         const fp: Array<[number, number]> = aoi.map(
             ([lon, lat]) => [lon + offsetLon, lat + offsetLat] as [number, number],
         );
+        const id =
+            m === 'NISAR'
+                ? `NISAR_L_RSLC_${yyyy}${mm}${dd}T0930_${i}`
+                : `${m}_IW_SLC__1SDV_${yyyy}${mm}${dd}T211515_${i}`;
         out.push({
-            id: `${m}_IW_SLC__1SDV_${yyyy}${mm}${dd}T211515_${i}`,
+            id,
             date: `${yyyy}-${mm}-${dd}`,
             isoDate: `${yyyy}-${mm}-${dd}`,
             mission: m,
@@ -410,6 +422,7 @@ function InsarRequestPageInner() {
     }, [
         request.startDate,
         request.endDate,
+        request.platform,
         request.s1a,
         request.s1c,
         request.nwLat,
@@ -422,7 +435,7 @@ function InsarRequestPageInner() {
         request.nwLat, request.nwLon, request.seLat, request.seLon,
     ]);
     const availableScenes = useMemo(() => generateAvailableScenes(request), [
-        request.startDate, request.endDate, request.s1a, request.s1c,
+        request.startDate, request.endDate, request.platform, request.s1a, request.s1c,
         request.nwLat, request.nwLon, request.seLat, request.seLon,
     ]);
 
@@ -641,7 +654,8 @@ function InsarRequestPageInner() {
                 field: 'aoi',
                 message: 'AOI 좌표를 확인해주세요 (NW 가 SE 보다 북서쪽이어야 합니다)',
             };
-        if (!request.s1a && !request.s1c) return { field: 'mission', message: '미션을 하나 이상 선택해주세요' };
+        if (request.platform === 'S1' && !request.s1a && !request.s1c)
+            return { field: 'mission', message: '미션을 하나 이상 선택해주세요' };
         return null;
     };
     // 폼 검증 후 통과하면 true — "이미지 선택" 클릭 시 scene 탭으로 넘어갈지 결정.
@@ -1509,6 +1523,48 @@ function RequestSidebar({
                     display: sidebarTab === 'options' ? 'block' : 'none',
                 }}
             >
+                <Section title="위성 플랫폼">
+                    <div className="col gap-2">
+                        <select
+                            className="input"
+                            aria-label="위성 플랫폼 선택"
+                            style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13 }}
+                            value={form.platform}
+                            onChange={(e) =>
+                                onChangeField('platform', e.target.value as RequestForm['platform'])
+                            }
+                        >
+                            <option value="S1">Sentinel-1 (C-band SAR)</option>
+                            <option value="NISAR">NISAR (L-band SAR)</option>
+                        </select>
+                        {form.platform === 'S1' ? (
+                            <div className="row gap-1" style={{ flexWrap: 'wrap' }}>
+                                <span
+                                    className={`chip${form.s1a ? ' chip--active' : ''}`}
+                                    onClick={() => onChangeField('s1a', !form.s1a)}
+                                >
+                                    Sentinel-1A
+                                </span>
+                                <span
+                                    className={`chip${form.s1c ? ' chip--active' : ''}`}
+                                    onClick={() => onChangeField('s1c', !form.s1c)}
+                                >
+                                    Sentinel-1C
+                                </span>
+                            </div>
+                        ) : (
+                            <div className="faint" style={{ fontSize: 11.5, lineHeight: 1.5 }}>
+                                NISAR 단일 위성 · L-band(24cm) RSLC · 12일 재방문. repeat-pass InSAR 에
+                                L-band 를 사용합니다.
+                            </div>
+                        )}
+                        <FieldErrorMsg
+                            show={fieldError?.field === 'mission'}
+                            message={fieldError?.message}
+                        />
+                    </div>
+                </Section>
+
                 <Section title="분석 유형">
                     <div className="col gap-2">
                         {(Object.keys(ANALYSIS_META) as AnalysisType[]).map((t) => {
@@ -1666,24 +1722,6 @@ function RequestSidebar({
                     hint="무거운 처리 전에 coherence·토지피복·경사를 진단하고 방법을 추천합니다."
                 >
                     <AoiAssessPanel form={form} />
-                </Section>
-
-                <Section title="미션">
-                    <div className="row gap-1" style={{ flexWrap: 'wrap' }}>
-                        <span
-                            className={`chip${form.s1a ? ' chip--active' : ''}`}
-                            onClick={() => onChangeField('s1a', !form.s1a)}
-                        >
-                            Sentinel-1A
-                        </span>
-                        <span
-                            className={`chip${form.s1c ? ' chip--active' : ''}`}
-                            onClick={() => onChangeField('s1c', !form.s1c)}
-                        >
-                            Sentinel-1C
-                        </span>
-                    </div>
-                    <FieldErrorMsg show={fieldError?.field === 'mission'} message={fieldError?.message} />
                 </Section>
 
                 {/* 산출 레이어는 분석 시 전부 생성된다. 어떤 레이어를 볼지는 결과 조회 화면에서 전환한다
