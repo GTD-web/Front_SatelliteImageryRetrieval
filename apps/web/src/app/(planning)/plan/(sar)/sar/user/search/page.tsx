@@ -36,7 +36,7 @@ type ProductMode = 'slc' | 'others';
 type AoiField = 'nwLat' | 'nwLon' | 'seLat' | 'seLon';
 
 /** 검색 가능한 위성 플랫폼. 'S1' 은 정식 지원, 'S2' 는 광학 필터 UI 만 목업, 나머지는 준비 중. */
-type Platform = 'S1' | 'S2' | 'umbra' | 'capella' | 'kompsat';
+type Platform = 'S1' | 'S2' | 'nisar' | 'umbra' | 'capella' | 'kompsat';
 
 interface PlatformDef {
     value: Platform;
@@ -49,6 +49,7 @@ interface PlatformDef {
 const PLATFORMS: PlatformDef[] = [
     { value: 'S1', label: 'Sentinel-1 (SAR)', kind: 'SAR', ready: true },
     { value: 'S2', label: 'Sentinel-2 (광학)', kind: 'EO', ready: true, note: '광학 필터 미리보기' },
+    { value: 'nisar', label: 'NISAR (L/S-band SAR)', kind: 'SAR', ready: true },
     { value: 'umbra', label: 'Umbra (SAR)', kind: 'SAR', ready: false, note: '연동 준비 중' },
     { value: 'capella', label: 'Capella (SAR)', kind: 'SAR', ready: false, note: '연동 준비 중' },
     { value: 'kompsat', label: 'KOMPSAT (광학/SAR)', kind: 'EO', ready: false, note: '연동 준비 중' },
@@ -73,6 +74,10 @@ interface Filters {
     pol: string[];
     passA: boolean;
     passD: boolean;
+    // NISAR (L/S-band SAR) — 밴드/제품/편광. S1 의 s1a·s1c·productMode 와 독립.
+    nisarBands: string[];
+    nisarProduct: 'RSLC' | 'GSLC' | 'GCOV';
+    nisarPol: string[];
     haveOnly: boolean;
     esaRefresh: boolean;
     startDate: Date;
@@ -121,6 +126,15 @@ function sceneMatches(s: HifiScene, f: Filters, platform: Platform, s2: S2Filter
         if (f.haveOnly && !s.have) return false;
         return true;
     }
+    if (platform === 'nisar') {
+        // NISAR — mission 'NISAR', mode 에 밴드(L/S), product RSLC/GSLC/GCOV.
+        if (s.mission !== 'NISAR') return false;
+        if (f.nisarBands.length > 0 && !f.nisarBands.includes(s.mode ?? '')) return false;
+        if (s.product !== f.nisarProduct) return false;
+        if (f.nisarPol.length > 0 && (!s.pol || !f.nisarPol.includes(s.pol))) return false;
+        if (f.haveOnly && !s.have) return false;
+        return true;
+    }
     // umbra / capella / kompsat — 연동 미지원
     return false;
 }
@@ -136,6 +150,9 @@ function buildDefaultFilters(): Filters {
         pol: ['VV+VH'],
         passA: true,
         passD: true,
+        nisarBands: ['L', 'S'],
+        nisarProduct: 'RSLC',
+        nisarPol: [],
         haveOnly: false,
         esaRefresh: false,
         startDate: start,
@@ -865,6 +882,8 @@ function SearchPageInner() {
                             </>
                         ) : platform === 'S2' ? (
                             <S2FilterPanel filters={s2Filters} setFilters={setS2Filters} />
+                        ) : platform === 'nisar' ? (
+                            <NisarFilterPanel filters={filters} setFilters={setFilters} />
                         ) : (
                             <ComingSoonPanel
                                 platform={PLATFORMS.find((p) => p.value === platform)!}
@@ -1239,7 +1258,7 @@ function SearchPageInner() {
                             {filtered.length === 0 ? (
                                 <div className="empty" style={{ padding: 60 }}>
                                     <div className="empty__icon">🔍</div>
-                                    {platform === 'S1' ? (
+                                    {platform === 'S1' || platform === 'nisar' ? (
                                         <>
                                             <div>일치하는 scene이 없습니다</div>
                                             <button
@@ -2045,6 +2064,114 @@ function relativeOrbit(orbit: number | undefined, mission: string | undefined): 
 function pct(n: number, total: number): number {
     if (!total) return 0;
     return Math.round((n / total) * 100);
+}
+
+/** NISAR(L/S-band SAR) 전용 필터 — 주파수 밴드, 제품 레벨, 편광 모드. */
+function NisarFilterPanel({
+    filters,
+    setFilters,
+}: {
+    filters: Filters;
+    setFilters: Dispatch<SetStateAction<Filters>>;
+}) {
+    const BANDS: Array<{ key: string; label: string; desc: string }> = [
+        { key: 'L', label: 'L-band (24cm)', desc: '장파장 · 식생 투과 · 대변위 · InSAR 주력' },
+        { key: 'S', label: 'S-band (12cm)', desc: '단파장 · 농작물·습지 등 변화 탐지' },
+    ];
+    const POLS = ['HH', 'VV', 'HH+HV', 'VV+VH', 'HH+HV+VH+VV', 'RH+RV'];
+    return (
+        <>
+            <div>
+                <label className="field-label">주파수 밴드 (다중 선택)</label>
+                <div className="col gap-2" style={{ marginTop: 4 }}>
+                    {BANDS.map((b) => {
+                        const checked = filters.nisarBands.includes(b.key);
+                        return (
+                            <label
+                                key={b.key}
+                                className="row gap-2"
+                                style={{ cursor: 'pointer', alignItems: 'flex-start' }}
+                            >
+                                <input
+                                    type="checkbox"
+                                    className="checkbox"
+                                    style={{ marginTop: 2, flexShrink: 0 }}
+                                    checked={checked}
+                                    onChange={() =>
+                                        setFilters((f) => ({
+                                            ...f,
+                                            nisarBands: checked
+                                                ? f.nisarBands.filter((x) => x !== b.key)
+                                                : [...f.nisarBands, b.key],
+                                        }))
+                                    }
+                                />
+                                <div className="col" style={{ gap: 1, minWidth: 0 }}>
+                                    <span style={{ fontWeight: 500, fontSize: 12.5 }}>{b.label}</span>
+                                    <span className="faint" style={{ fontSize: 10.5, lineHeight: 1.35 }}>
+                                        {b.desc}
+                                    </span>
+                                </div>
+                            </label>
+                        );
+                    })}
+                </div>
+            </div>
+
+            <FilterDivider />
+
+            <div>
+                <label className="field-label">제품 레벨</label>
+                <div className="segmented" style={{ marginTop: 2, display: 'flex', width: '100%' }}>
+                    {(['RSLC', 'GSLC', 'GCOV'] as const).map((p) => (
+                        <button
+                            key={p}
+                            type="button"
+                            className={filters.nisarProduct === p ? 'active' : ''}
+                            style={{ flex: 1 }}
+                            onClick={() => setFilters((f) => ({ ...f, nisarProduct: p }))}
+                        >
+                            {p}
+                        </button>
+                    ))}
+                </div>
+                <div className="faint" style={{ fontSize: 11.5, marginTop: 8, lineHeight: 1.5 }}>
+                    {filters.nisarProduct === 'RSLC'
+                        ? 'Range-Doppler Single Look Complex — 위상 보존, InSAR/시계열 분석에 사용'
+                        : filters.nisarProduct === 'GSLC'
+                          ? 'Geocoded SLC — 지형 보정된 복소 영상'
+                          : 'Geocoded Covariance — 편광 공분산 행렬 (편광 분석·분류)'}
+                </div>
+            </div>
+
+            <FilterDivider />
+
+            <div>
+                <label className="field-label">편광 모드 (다중 선택)</label>
+                <div className="row gap-1" style={{ flexWrap: 'wrap' }}>
+                    {POLS.map((p) => (
+                        <span
+                            key={p}
+                            className={`chip${filters.nisarPol.includes(p) ? ' chip--active' : ''}`}
+                            onClick={() =>
+                                setFilters((f) => ({
+                                    ...f,
+                                    nisarPol: f.nisarPol.includes(p)
+                                        ? f.nisarPol.filter((x) => x !== p)
+                                        : [...f.nisarPol, p],
+                                }))
+                            }
+                        >
+                            {p}
+                        </span>
+                    ))}
+                </div>
+                <div className="faint" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.45 }}>
+                    single(HH/VV) · dual(HH+HV / VV+VH) · quad(HH+HV+VH+VV) · compact(RH+RV)
+                </div>
+            </div>
+        </>
+    );
 }
 
 /** Sentinel-2(광학) 전용 필터 — 처리 레벨, 구름 비율, 밴드 선택. */
