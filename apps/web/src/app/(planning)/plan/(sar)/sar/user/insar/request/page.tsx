@@ -24,7 +24,7 @@ import {
 import { LoadAoiMenu, SaveAoiButton } from '../../../_components/SavedAoiControls';
 import { RequestTimelinePanel } from '../../../_components/SceneTimelinePanel';
 
-import { LabeledInput, NumberField, Section, typeBadge } from '../_shared';
+import { LabeledInput, Section, typeBadge } from '../_shared';
 
 // ────────────────────────────────────────────────────────────────────────────
 // 분석 요청 (request) 모델
@@ -60,6 +60,44 @@ const ANALYSIS_META: Record<
         sub: 'Small Baseline Subset — 분산형 산란체 시계열',
         minScenes: 15,
         sceneRequirement: 'scene 15개 이상',
+    },
+};
+
+/**
+ * 분석 유형별 자동 처리 파라미터.
+ * 사용자는 이 값을 직접 만지지 않는다 — 유형만 고르면 권장값이 자동 적용되고
+ * "자동 설정값" 패널에 읽기 전용으로 노출된다. 실제 정밀 튜닝은 백엔드 처리 시 수행.
+ */
+const AUTO_PARAMS: Record<
+    AnalysisType,
+    {
+        polarization: string;
+        coherenceMin: number;
+        temporalBaselineMaxDays: number;
+        spatialBaselineMaxM: number;
+        minScenes: number;
+    }
+> = {
+    DInSAR: {
+        polarization: 'VV+VH',
+        coherenceMin: 0.5,
+        temporalBaselineMaxDays: 24,
+        spatialBaselineMaxM: 150,
+        minScenes: 2,
+    },
+    PSInSAR: {
+        polarization: 'VV',
+        coherenceMin: 0.7,
+        temporalBaselineMaxDays: 36,
+        spatialBaselineMaxM: 200,
+        minScenes: 20,
+    },
+    SBAS: {
+        polarization: 'VV+VH',
+        coherenceMin: 0.3,
+        temporalBaselineMaxDays: 60,
+        spatialBaselineMaxM: 200,
+        minScenes: 15,
     },
 };
 
@@ -101,11 +139,7 @@ function buildDefaultRequest(): RequestForm {
         endDate: end,
         s1a: true,
         s1c: false,
-        polarization: 'VV+VH',
-        coherenceMin: 0.3,
-        temporalBaselineMaxDays: 60,
-        spatialBaselineMaxM: 200,
-        minScenes: 20,
+        ...AUTO_PARAMS.DInSAR,
         referenceMode: 'auto',
         referenceLon: '',
         referenceLat: '',
@@ -589,12 +623,8 @@ function InsarRequestPageInner() {
         setRequest((f) => ({ ...f, [key]: value }));
     };
     const setRequestType = (t: AnalysisType) => {
-        setRequest((f) => {
-            const base = { ...f, type: t };
-            if (t === 'DInSAR') return { ...base, minScenes: 2, coherenceMin: 0.5 };
-            if (t === 'PSInSAR') return { ...base, minScenes: 20, coherenceMin: 0.7 };
-            return { ...base, minScenes: 15, coherenceMin: 0.3 };
-        });
+        // 유형을 바꾸면 해당 유형의 권장 파라미터를 자동 적용한다(사용자 입력 없음).
+        setRequest((f) => ({ ...f, type: t, ...AUTO_PARAMS[t], referenceMode: 'auto' }));
         if (t === 'DInSAR') {
             setSelectedSceneIds((prev) => {
                 if (prev.size <= 2) return prev;
@@ -612,13 +642,6 @@ function InsarRequestPageInner() {
                 message: 'AOI 좌표를 확인해주세요 (NW 가 SE 보다 북서쪽이어야 합니다)',
             };
         if (!request.s1a && !request.s1c) return { field: 'mission', message: '미션을 하나 이상 선택해주세요' };
-        if (
-            request.type === 'PSInSAR' &&
-            request.referenceMode === 'manual' &&
-            (!request.referenceLon || !request.referenceLat)
-        ) {
-            return { field: 'reference', message: '직접 입력 모드에서는 reference point 좌표가 필요합니다' };
-        }
         return null;
     };
     // 폼 검증 후 통과하면 true — "이미지 선택" 클릭 시 scene 탭으로 넘어갈지 결정.
@@ -1173,6 +1196,157 @@ function RangeWarningList({ items }: { items: RangeWarning[] }) {
     );
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// 자동 설정값 — 사용자가 직접 만지지 않는 파라미터를 읽기 전용으로 노출
+// ────────────────────────────────────────────────────────────────────────────
+
+interface AutoParamRow {
+    label: string;
+    value: string;
+    info?: string;
+}
+
+/** 분석 유형별로 자동 적용되는 파라미터를 사용자에게 보여줄 행 목록으로 변환. */
+function autoParamRows(type: AnalysisType): AutoParamRow[] {
+    const p = AUTO_PARAMS[type];
+    if (type === 'DInSAR') {
+        return [
+            {
+                label: '편광',
+                value: p.polarization,
+                info: '관측에 사용할 편파 조합. Sentinel-1 기본 수신 조합으로 자동 설정됩니다.',
+            },
+            {
+                label: '최소 코히어런스',
+                value: p.coherenceMin.toFixed(2),
+                info: '픽셀별 위상 신뢰도 임계값(0~1). 이 값 미만 픽셀은 결과에서 마스킹됩니다. DInSAR 은 0.5 를 기본으로 합니다.',
+            },
+            {
+                label: 'Master/Slave',
+                value: 'scene 선택에서 2장',
+                info: '아래 "scene 선택" 탭에서 두 scene 을 고르면 자동으로 master/slave 페어가 됩니다.',
+            },
+        ];
+    }
+    if (type === 'PSInSAR') {
+        return [
+            {
+                label: '편광',
+                value: p.polarization,
+                info: 'PS 분석은 단일 편파(VV)로 충분하고 안정적입니다.',
+            },
+            {
+                label: 'PS 코히어런스 임계값',
+                value: p.coherenceMin.toFixed(2),
+                info: 'PS 후보 식별에 쓰이는 시간 코히어런스 임계값. 보통 0.7 이상으로 안정한 점만 남깁니다.',
+            },
+            {
+                label: '최소 scene 수',
+                value: `${p.minScenes}장 이상`,
+                info: 'PS 통계에 필요한 최소 acquisition 장수. 적으면 PS 후보가 부족해 신뢰가 떨어집니다.',
+            },
+            {
+                label: 'Reference point',
+                value: '자동 (가장 안정한 점)',
+                info: 'PS 후보 중 시간 coherence 가 가장 높은(가장 안정한) 점을 기준점으로 자동 선택합니다.',
+            },
+        ];
+    }
+    return [
+        {
+            label: '편광',
+            value: p.polarization,
+            info: 'Sentinel-1 기본 수신 조합으로 자동 설정됩니다.',
+        },
+        {
+            label: '최대 시간 베이스라인',
+            value: `${p.temporalBaselineMaxDays}일`,
+            info: 'interferogram 페어 두 scene 간 허용 최대 시간 차이. 길수록 페어 수는 늘지만 시간적 디코히어런스가 증가합니다.',
+        },
+        {
+            label: '최대 공간 베이스라인',
+            value: `${p.spatialBaselineMaxM}m`,
+            info: '두 acquisition 의 위성 궤도 간 허용 최대 수직 거리(perpendicular baseline).',
+        },
+        {
+            label: '최소 코히어런스',
+            value: p.coherenceMin.toFixed(2),
+            info: 'interferogram 픽셀 마스킹 임계값. SBAS 는 분산형 산란체도 보존하므로 낮은 값을 사용합니다.',
+        },
+    ];
+}
+
+/**
+ * 분석 유형에 맞춰 자동 적용되는 파라미터를 읽기 전용으로 표시한다.
+ * 편광·코히어런스·베이스라인 등은 사용자가 직접 조정하지 않고, 유형 선택만으로 결정된다.
+ */
+function AutoParamsSection({ form, availableCount }: { form: RequestForm; availableCount: number }) {
+    const rows = autoParamRows(form.type);
+    // 기간/가용 scene 수에 따른 경고는 사용자 선택(AOI·기간)에 좌우되므로 그대로 안내한다.
+    const warnings = form.type === 'DInSAR' ? [] : analysisRangeWarnings(form, availableCount);
+    return (
+        <Section
+            title="자동 설정값"
+            info="분석 유형에 맞춰 권장 파라미터가 자동으로 설정됩니다. 도메인 지식이 없어도 안전한 기본값으로 처리됩니다."
+        >
+            <div className="col gap-3">
+                {warnings.length ? <RangeWarningList items={warnings} /> : null}
+                <div
+                    style={{
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: 6,
+                        background: 'var(--bg-2)',
+                        overflow: 'hidden',
+                    }}
+                >
+                    {rows.map((r, i) => (
+                        <div
+                            key={r.label}
+                            className="between"
+                            style={{
+                                alignItems: 'center',
+                                gap: 8,
+                                padding: '8px 10px',
+                                borderTop: i === 0 ? undefined : '1px solid var(--border-subtle)',
+                            }}
+                        >
+                            <span
+                                className="row"
+                                style={{
+                                    alignItems: 'center',
+                                    gap: 5,
+                                    fontSize: 11.5,
+                                    color: 'var(--text-secondary)',
+                                }}
+                            >
+                                {r.label}
+                                {r.info ? <InfoTip text={r.info} size={11} /> : null}
+                            </span>
+                            <span className="mono tabular" style={{ fontSize: 11.5, fontWeight: 600 }}>
+                                {r.value}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+                <div
+                    className="row gap-2"
+                    style={{
+                        alignItems: 'flex-start',
+                        fontSize: 10.5,
+                        lineHeight: 1.45,
+                        color: 'var(--text-tertiary)',
+                    }}
+                >
+                    <Icon name="info" size={11} style={{ marginTop: 1, flexShrink: 0 }} />
+                    <span>
+                        이 값들은 직접 조정하지 않아도 됩니다. 분석 유형만 고르면 나머지는 자동으로 맞춰집니다.
+                    </span>
+                </div>
+            </div>
+        </Section>
+    );
+}
+
 /** 입력 옆에 뜨는 인라인 검증 에러 메시지. */
 function FieldErrorMsg({ show, message }: { show: boolean; message?: string }) {
     if (!show) return null;
@@ -1510,147 +1684,7 @@ function RequestSidebar({
                     <FieldErrorMsg show={fieldError?.field === 'mission'} message={fieldError?.message} />
                 </Section>
 
-                <Section title="편광">
-                    <div className="row gap-1" style={{ flexWrap: 'wrap' }}>
-                        {['VV', 'VH', 'HH', 'HV', 'VV+VH'].map((p) => (
-                            <span
-                                key={p}
-                                className={`chip${form.polarization === p ? ' chip--active' : ''}`}
-                                onClick={() => onChangeField('polarization', p)}
-                            >
-                                {p}
-                            </span>
-                        ))}
-                    </div>
-                </Section>
-
-                {form.type === 'DInSAR' ? (
-                    <Section title="DInSAR 파라미터">
-                        <div className="col gap-3">
-                            <NumberField
-                                label="최소 코히어런스"
-                                value={form.coherenceMin}
-                                step={0.05}
-                                min={0}
-                                max={1}
-                                onChange={(v) => onChangeField('coherenceMin', v)}
-                                hint="0–1, 0.5 권장"
-                                info="픽셀별 위상 신뢰도(0~1). 이 값 미만의 픽셀은 결과에서 마스킹됩니다. 너무 높이면 분석 면적이 좁아지고, 너무 낮추면 노이즈가 결과에 섞입니다."
-                            />
-                            <div className="faint" style={{ fontSize: 11, lineHeight: 1.5 }}>
-                                Master/Slave 쌍은 아래 scene 선택에서 두 scene 을 선택하세요.
-                            </div>
-                        </div>
-                    </Section>
-                ) : null}
-
-                {form.type === 'PSInSAR' ? (
-                    <Section title="PSInSAR 파라미터">
-                        <div className="col gap-3">
-                            <RangeWarningList items={analysisRangeWarnings(form, availableCount)} />
-                            <NumberField
-                                label="최소 scene 수"
-                                value={form.minScenes}
-                                step={1}
-                                min={5}
-                                onChange={(v) => onChangeField('minScenes', v)}
-                                hint="20개 이상 권장"
-                                info="시계열 분석에 사용할 최소 scene 장수. 적으면 PS 후보가 부족해 통계적으로 신뢰가 떨어집니다."
-                            />
-                            <NumberField
-                                label="PS 코히어런스 임계값"
-                                value={form.coherenceMin}
-                                step={0.05}
-                                min={0}
-                                max={1}
-                                onChange={(v) => onChangeField('coherenceMin', v)}
-                                hint="0.7 권장"
-                                info="PS 후보 식별에 쓰이는 진폭 분산 / 시간 코히어런스 임계값. 보통 0.7 이상을 사용해 안정한 점만 남깁니다."
-                            />
-                            <div className="col gap-2">
-                                <span style={{ fontSize: 12, fontWeight: 600 }}>Reference point</span>
-                                <div className="row gap-1" style={{ flexWrap: 'wrap' }}>
-                                    <span
-                                        className={`chip${form.referenceMode === 'auto' ? ' chip--active' : ''}`}
-                                        onClick={() => onChangeField('referenceMode', 'auto')}
-                                    >
-                                        자동 선택
-                                    </span>
-                                    <span
-                                        className={`chip${form.referenceMode === 'manual' ? ' chip--active' : ''}`}
-                                        onClick={() => onChangeField('referenceMode', 'manual')}
-                                    >
-                                        직접 입력
-                                    </span>
-                                </div>
-                                {form.referenceMode === 'manual' ? (
-                                    <>
-                                        <div className="row gap-2">
-                                            <LabeledInput
-                                                label="reference lat"
-                                                value={form.referenceLat}
-                                                onChange={(v) => onChangeField('referenceLat', v)}
-                                            />
-                                            <LabeledInput
-                                                label="reference lon"
-                                                value={form.referenceLon}
-                                                onChange={(v) => onChangeField('referenceLon', v)}
-                                            />
-                                        </div>
-                                        <FieldErrorMsg
-                                            show={fieldError?.field === 'reference'}
-                                            message={fieldError?.message}
-                                        />
-                                        <div className="faint" style={{ fontSize: 11, lineHeight: 1.5 }}>
-                                            Reference point 는 변위 0 으로 가정하는 안정 지반 좌표입니다.
-                                        </div>
-                                    </>
-                                ) : (
-                                    <div className="faint" style={{ fontSize: 11, lineHeight: 1.5 }}>
-                                        PS 후보 중 시간 coherence 가 가장 높은(가장 안정한) 점을 기준점으로 자동
-                                        선택합니다. 안정 지반을 알고 있다면 직접 입력이 더 정확합니다.
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </Section>
-                ) : null}
-
-                {form.type === 'SBAS' ? (
-                    <Section title="SBAS 파라미터">
-                        <div className="col gap-3">
-                            <RangeWarningList items={analysisRangeWarnings(form, availableCount)} />
-                            <NumberField
-                                label="최대 시간 베이스라인 (일)"
-                                value={form.temporalBaselineMaxDays}
-                                step={6}
-                                min={6}
-                                onChange={(v) => onChangeField('temporalBaselineMaxDays', v)}
-                                hint="60일 권장"
-                                info="interferogram 페어 두 scene 간 허용 최대 시간 차이. 길수록 페어 수는 늘지만 시간적 디코히어런스(식생 변화 등)가 증가합니다."
-                            />
-                            <NumberField
-                                label="최대 공간 베이스라인 (m)"
-                                value={form.spatialBaselineMaxM}
-                                step={50}
-                                min={50}
-                                onChange={(v) => onChangeField('spatialBaselineMaxM', v)}
-                                hint="200m 권장"
-                                info="두 acquisition 의 위성 궤도 간 허용 최대 수직 거리(perpendicular baseline). 클수록 페어 수는 늘지만 기하학적 디코히어런스가 증가합니다."
-                            />
-                            <NumberField
-                                label="최소 코히어런스"
-                                value={form.coherenceMin}
-                                step={0.05}
-                                min={0}
-                                max={1}
-                                onChange={(v) => onChangeField('coherenceMin', v)}
-                                hint="0.3 권장"
-                                info="interferogram 픽셀 마스킹 임계값. SBAS 는 분산형 산란체도 보존하므로 PSInSAR 보다 낮은 값을 사용합니다."
-                            />
-                        </div>
-                    </Section>
-                ) : null}
+                <AutoParamsSection form={form} availableCount={availableCount} />
 
                 {/* 산출 레이어는 분석 시 전부 생성된다. 어떤 레이어를 볼지는 결과 조회 화면에서 전환한다
                     (results/page.tsx 의 "레이어" 섹션). 요청 단계에서는 선택을 받지 않는다. */}
