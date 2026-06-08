@@ -202,70 +202,7 @@ export default function CrawlTargetsPage() {
                 </button>
             </div>
             <div className="split">
-                <div className="split__main">
-                    <div style={{ flex: 1, padding: 16 }}>
-                        <div className="card" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                            <div className="card__header">
-                                <div className="card__title">AOI 지도 · 상태 색상</div>
-                                <div className="row gap-1">
-                                    <span className="chip">
-                                        <span
-                                            style={{
-                                                width: 8,
-                                                height: 8,
-                                                background: 'var(--success)',
-                                                borderRadius: 50,
-                                                display: 'inline-block',
-                                            }}
-                                        />
-                                        &nbsp;정상 {counts.healthy}
-                                    </span>
-                                    <span className="chip">
-                                        <span
-                                            style={{
-                                                width: 8,
-                                                height: 8,
-                                                background: 'var(--warning)',
-                                                borderRadius: 50,
-                                                display: 'inline-block',
-                                            }}
-                                        />
-                                        &nbsp;경고 {counts.warning}
-                                    </span>
-                                    <span className="chip">
-                                        <span
-                                            style={{
-                                                width: 8,
-                                                height: 8,
-                                                background: 'var(--danger)',
-                                                borderRadius: 50,
-                                                display: 'inline-block',
-                                            }}
-                                        />
-                                        &nbsp;실패 {counts.failed}
-                                    </span>
-                                </div>
-                            </div>
-                            <div style={{ flex: 1 }}>
-                                <MapCanvas
-                                    footprints={footprints}
-                                    center={[129.0, 36.0]}
-                                    zoom={7}
-                                    activeTool={activeTool}
-                                    onToolSelect={(t) => {
-                                        if (t === 'upload') {
-                                            setShpOpen(true);
-                                            return;
-                                        }
-                                        setActiveTool((cur) => (cur === t ? undefined : t));
-                                    }}
-                                    onDrawEnd={handleDrawEnd}
-                                />
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <aside className="split__side" style={{ width: 420 }}>
+                <aside className="split__side split__side--left" style={{ width: 420 }}>
                     <div className="card__header" style={{ padding: '14px 16px' }}>
                         <div className="card__title">AOI 목록</div>
                         <span className="badge badge--neutral">{aois.length}</span>
@@ -345,6 +282,69 @@ export default function CrawlTargetsPage() {
                         ))}
                     </div>
                 </aside>
+                <div className="split__main">
+                    <div style={{ flex: 1, padding: 16 }}>
+                        <div className="card" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                            <div className="card__header">
+                                <div className="card__title">AOI 지도 · 상태 색상</div>
+                                <div className="row gap-1">
+                                    <span className="chip">
+                                        <span
+                                            style={{
+                                                width: 8,
+                                                height: 8,
+                                                background: 'var(--success)',
+                                                borderRadius: 50,
+                                                display: 'inline-block',
+                                            }}
+                                        />
+                                        &nbsp;정상 {counts.healthy}
+                                    </span>
+                                    <span className="chip">
+                                        <span
+                                            style={{
+                                                width: 8,
+                                                height: 8,
+                                                background: 'var(--warning)',
+                                                borderRadius: 50,
+                                                display: 'inline-block',
+                                            }}
+                                        />
+                                        &nbsp;경고 {counts.warning}
+                                    </span>
+                                    <span className="chip">
+                                        <span
+                                            style={{
+                                                width: 8,
+                                                height: 8,
+                                                background: 'var(--danger)',
+                                                borderRadius: 50,
+                                                display: 'inline-block',
+                                            }}
+                                        />
+                                        &nbsp;실패 {counts.failed}
+                                    </span>
+                                </div>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <MapCanvas
+                                    footprints={footprints}
+                                    center={[129.0, 36.0]}
+                                    zoom={7}
+                                    activeTool={activeTool}
+                                    onToolSelect={(t) => {
+                                        if (t === 'upload') {
+                                            setShpOpen(true);
+                                            return;
+                                        }
+                                        setActiveTool((cur) => (cur === t ? undefined : t));
+                                    }}
+                                    onDrawEnd={handleDrawEnd}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
             {shpOpen ? <ShapefileUploadModal onClose={() => setShpOpen(false)} /> : null}
         </div>
