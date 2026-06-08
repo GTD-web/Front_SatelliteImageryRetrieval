@@ -249,7 +249,10 @@ export function InfoTip({ text, size = 13, placement = 'right', style, trigger =
                               background: 'var(--bg-4)',
                               color: 'var(--text-primary)',
                               fontSize: 11,
-                              lineHeight: 1.5,
+                              lineHeight: 1.6,
+                              // 텍스트의 \n 을 줄바꿈으로 살린다(불릿·기준 목록 등). 자동 줄바꿈은 유지.
+                              whiteSpace: 'pre-line',
+                              textAlign: 'left',
                               borderRadius: 'var(--r-sm)',
                               boxShadow: 'var(--shadow-md)',
                               border: '1px solid var(--border-default)',
