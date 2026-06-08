@@ -18,8 +18,12 @@ type Tone = 'success' | 'warning' | 'failed';
 interface Notif {
     tone: Tone;
     icon: 'check' | 'clock' | 'x';
-    title: string;
-    sub: string;
+    statusLabel: string;
+    aoi: string;
+    message: string;
+    started: string;
+    duration: string;
+    fetched: number;
 }
 
 const TONE_FG: Record<Tone, string> = {
@@ -35,19 +39,37 @@ const TONE_BG: Record<Tone, string> = {
 
 /** 동기화 실행 결과 1건을 상단 티커에 띄울 알림으로 변환. 성공/지연/실패를 모두 표현한다. */
 function toNotif(r: Run): Notif {
+    const base = { aoi: r.aoi, started: r.started, duration: r.duration, fetched: r.fetched };
     if (r.status === 'failed') {
-        return { tone: 'failed', icon: 'x', title: `${r.aoi} 동기화 실패`, sub: r.err ?? '오류' };
+        return { ...base, tone: 'failed', icon: 'x', statusLabel: '실패', message: r.err ?? '동기화 오류 발생' };
     }
     if (r.status === 'warning') {
-        return { tone: 'warning', icon: 'clock', title: `${r.aoi} 동기화 지연`, sub: '5분 후 자동 재시도' };
+        return { ...base, tone: 'warning', icon: 'clock', statusLabel: '지연', message: '응답 지연 — 5분 후 자동 재시도' };
     }
-    return { tone: 'success', icon: 'check', title: `${r.aoi} 동기화 완료`, sub: `신규 ${r.fetched} Scene` };
+    return { ...base, tone: 'success', icon: 'check', statusLabel: '성공', message: `신규 ${r.fetched} Scene 수집 완료` };
+}
+
+function TickerMeta({ label, value }: { label: string; value: string }) {
+    return (
+        <div className="col" style={{ gap: 1, alignItems: 'flex-start' }}>
+            <span
+                className="faint"
+                style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.03em' }}
+            >
+                {label}
+            </span>
+            <span className="mono tabular" style={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
+                {value}
+            </span>
+        </div>
+    );
 }
 
 /**
- * 상단 헤더 좌측의 동기화 알림 티커.
+ * 상단 헤더 좌측을 가득 채우는 동기화 알림 티커.
  *
  * 슬롯머신처럼 일정 시간마다 다음 알림으로 회전한다(실패뿐 아니라 성공·지연 알림도 함께 노출).
+ * 상태 아이콘 + AOI/메시지 + 상세 메타(시작·소요·신규 Scene) + 슬롯 카운터/인디케이터를 한 줄에 표현한다.
  * 슬롯이 바뀔 때 `key={idx}`로 내부를 리마운트해 `slotIn` 애니메이션을 재생한다.
  */
 function SyncTicker({ notifs }: { notifs: Notif[] }) {
@@ -55,7 +77,7 @@ function SyncTicker({ notifs }: { notifs: Notif[] }) {
 
     useEffect(() => {
         if (notifs.length <= 1) return;
-        const t = setInterval(() => setSlot((s) => s + 1), 3200);
+        const t = setInterval(() => setSlot((s) => s + 1), 3500);
         return () => clearInterval(t);
     }, [notifs.length]);
 
@@ -63,57 +85,125 @@ function SyncTicker({ notifs }: { notifs: Notif[] }) {
     const idx = slot % notifs.length;
     const cur = notifs[idx];
     if (!cur) return null;
+    const fg = TONE_FG[cur.tone];
 
     return (
         <div
-            className="row gap-2"
+            className="row"
             style={{
+                flex: 1,
+                minWidth: 0,
                 alignItems: 'center',
-                padding: '6px 12px',
-                borderRadius: 8,
+                gap: 14,
+                padding: '8px 14px',
+                borderRadius: 10,
                 background: TONE_BG[cur.tone],
-                border: `1px solid ${TONE_FG[cur.tone]}`,
-                minWidth: 320,
-                maxWidth: 380,
-                transition: 'background 280ms ease, border-color 280ms ease',
+                border: `1px solid ${fg}`,
+                transition: 'background 300ms ease, border-color 300ms ease',
             }}
             aria-live="polite"
         >
-            <Icon name={cur.icon} size={16} style={{ color: TONE_FG[cur.tone], flexShrink: 0 }} />
-            <div key={idx} className="col sync-slot-in" style={{ gap: 1, flex: 1, minWidth: 0 }}>
-                <span
+            {/* 상태 아이콘 (원형 칩) */}
+            <div
+                style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'var(--bg-1)',
+                    border: `1.5px solid ${fg}`,
+                    color: fg,
+                    flexShrink: 0,
+                }}
+            >
+                <Icon name={cur.icon} size={17} />
+            </div>
+
+            {/* 슬롯 본문 — key 로 회전 시 리마운트되어 slotIn 재생 */}
+            <div
+                key={idx}
+                className="row sync-slot-in"
+                style={{ flex: 1, minWidth: 0, alignItems: 'center', gap: 16 }}
+            >
+                <div className="col" style={{ gap: 2, minWidth: 0, flexShrink: 1 }}>
+                    <div className="row gap-2" style={{ alignItems: 'center', minWidth: 0 }}>
+                        <span
+                            style={{
+                                fontSize: 13.5,
+                                fontWeight: 600,
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                            }}
+                        >
+                            {cur.aoi}
+                        </span>
+                        <span
+                            style={{
+                                fontSize: 10.5,
+                                fontWeight: 600,
+                                color: fg,
+                                background: 'var(--bg-1)',
+                                border: `1px solid ${fg}`,
+                                borderRadius: 999,
+                                padding: '1px 7px',
+                                flexShrink: 0,
+                            }}
+                        >
+                            {cur.statusLabel}
+                        </span>
+                    </div>
+                    <span
+                        style={{
+                            fontSize: 11.5,
+                            color: cur.tone === 'failed' ? fg : 'var(--text-secondary)',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                        }}
+                    >
+                        {cur.message}
+                    </span>
+                </div>
+
+                {/* 상세 메타 — 시작 / 소요 / 신규 Scene */}
+                <div
+                    className="row"
                     style={{
-                        fontSize: 12.5,
-                        fontWeight: 600,
-                        color: TONE_FG[cur.tone],
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
+                        marginLeft: 'auto',
+                        gap: 18,
+                        paddingLeft: 16,
+                        borderLeft: '1px solid var(--border-subtle)',
+                        flexShrink: 0,
                     }}
                 >
-                    {cur.title}
-                </span>
-                <span
-                    className="mono faint"
-                    style={{ fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                >
-                    {cur.sub}
-                </span>
+                    <TickerMeta label="시작" value={cur.started} />
+                    <TickerMeta label="소요" value={cur.duration} />
+                    <TickerMeta label="신규 Scene" value={String(cur.fetched)} />
+                </div>
             </div>
-            {/* 슬롯 위치 인디케이터 — 회전 중임을 시각화 */}
-            <div className="row gap-1" style={{ flexShrink: 0 }}>
-                {notifs.map((_, i) => (
-                    <span
-                        key={i}
-                        style={{
-                            width: 5,
-                            height: 5,
-                            borderRadius: '50%',
-                            background: i === idx ? TONE_FG[cur.tone] : 'var(--border-default)',
-                            transition: 'background 200ms ease',
-                        }}
-                    />
-                ))}
+
+            {/* 슬롯 카운터 + 위치 인디케이터 */}
+            <div className="col" style={{ gap: 4, alignItems: 'flex-end', flexShrink: 0 }}>
+                <span className="mono faint" style={{ fontSize: 10.5 }}>
+                    {idx + 1} / {notifs.length}
+                </span>
+                <div className="row gap-1">
+                    {notifs.map((_, i) => (
+                        <span
+                            key={i}
+                            style={{
+                                width: 5,
+                                height: 5,
+                                borderRadius: '50%',
+                                background: i === idx ? fg : 'var(--border-default)',
+                                transition: 'background 200ms ease',
+                            }}
+                        />
+                    ))}
+                </div>
             </div>
         </div>
     );
