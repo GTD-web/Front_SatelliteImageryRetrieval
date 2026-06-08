@@ -5,9 +5,7 @@ export const dynamic = 'force-dynamic';
 interface SignupBody {
     name?: string;
     email?: string;
-    organization?: string;
     purpose?: string;
-    phone?: string;
 }
 
 // Mock: 관리자 알림은 서버 stdout 로그로만 전송. 실 구현 시 NestJS API로 POST.
@@ -21,10 +19,9 @@ export async function POST(request: NextRequest) {
 
     const name = body.name?.trim();
     const email = body.email?.trim();
-    const organization = body.organization?.trim();
     const purpose = body.purpose?.trim();
 
-    if (!name || !email || !organization || !purpose) {
+    if (!name || !email || !purpose) {
         return NextResponse.json({ error: '필수 항목이 누락되었습니다' }, { status: 400 });
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -40,8 +37,6 @@ export async function POST(request: NextRequest) {
         requestId,
         name,
         email,
-        organization,
-        phone: body.phone ?? null,
         purpose,
         submittedAt,
     });

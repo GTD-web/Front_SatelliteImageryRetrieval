@@ -7,12 +7,10 @@ import { Icon, useToast } from '@/_ui/hifi';
 interface Fields {
     name: string;
     email: string;
-    organization: string;
-    phone: string;
     purpose: string;
 }
 
-const EMPTY: Fields = { name: '', email: '', organization: '', phone: '', purpose: '' };
+const EMPTY: Fields = { name: '', email: '', purpose: '' };
 
 /** 회원가입 폼. 좌측 히어로/지도는 부모(AuthView)가 마운트하므로 여기서는 우측 폼만 렌더한다. */
 export function SignupForm({ onSwitchToLogin }: { onSwitchToLogin: () => void }) {
@@ -26,7 +24,7 @@ export function SignupForm({ onSwitchToLogin }: { onSwitchToLogin: () => void })
 
     const submit = async (e: FormEvent) => {
         e.preventDefault();
-        if (!fields.name || !fields.email || !fields.organization || !fields.purpose) {
+        if (!fields.name || !fields.email || !fields.purpose) {
             toast('필수 항목을 모두 입력하세요', { tone: 'warning' });
             return;
         }
@@ -90,21 +88,6 @@ export function SignupForm({ onSwitchToLogin }: { onSwitchToLogin: () => void })
                             value={fields.email}
                             onChange={(v) => update('email', v)}
                             autoComplete="email"
-                        />
-                        <Field
-                            label="소속 기관"
-                            required
-                            placeholder="예) 한국산업기술시험원"
-                            value={fields.organization}
-                            onChange={(v) => update('organization', v)}
-                            autoComplete="organization"
-                        />
-                        <Field
-                            label="연락처"
-                            placeholder="선택 — 010-0000-0000"
-                            value={fields.phone}
-                            onChange={(v) => update('phone', v)}
-                            autoComplete="tel"
                         />
                         <div>
                             <label className="field-label">이용 목적 *</label>
