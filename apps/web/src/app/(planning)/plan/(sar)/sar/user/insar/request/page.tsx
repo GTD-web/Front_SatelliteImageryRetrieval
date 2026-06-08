@@ -348,13 +348,22 @@ function vegState(isoDate: string): 'bare' | 'transition' | 'leaf' {
 // GET /api/v1/jobs/{id} 로 진행률을 polling 한다.
 // ────────────────────────────────────────────────────────────────────────────
 
+type Suitability = 'good' | 'fair' | 'poor';
+
+const SUITABILITY_META: Record<Suitability, { label: string; color: string }> = {
+    good: { label: '괜찮을 듯', color: 'var(--success)' },
+    fair: { label: '보통', color: 'var(--warning)' },
+    poor: { label: '좋지 않음', color: 'var(--danger)' },
+};
+
 interface Recommendation {
     type: AnalysisType;
+    /** 현재 데이터(위치·기간)로 이 기법을 썼을 때의 예상 적합도. */
+    suitability: Suitability;
     sceneIds: string[];
     sceneCount: number;
     spanLabel: string;
     reason: string;
-    confidenceHint: '높음' | '보통' | '낮음';
     /** 스택(SBAS/PSInSAR) 기준 대비 |B⊥| 범위(m). DInSAR 은 null. */
     perpRange: { min: number; max: number } | null;
 }
@@ -383,11 +392,12 @@ function bestDinsarPair(scenes: AvailableScene[]): string[] {
 }
 
 /**
- * 가용 데이터로 분석 유형과 scene 을 자동 추천한다(mock).
+ * 가용 데이터로 세 분석 기법(DInSAR/SBAS/PSInSAR)의 예상 적합도를 각각 평가한다(mock).
  * SDK_Snap 결론(도심=PSI / 광역=SBAS / 단기·소수=DInSAR)을 scene 수·기간으로 근사한다.
  * 자동 모드는 위성도 자동 선택하므로 S1A+S1C 컨스텔레이션 전부를 후보로 둔다.
+ * 반환은 적합도 높은 순 정렬 — 첫 번째가 추천 기법이다.
  */
-function recommendAnalysis(form: RequestForm): Recommendation | null {
+function assessMethods(form: RequestForm): Recommendation[] | null {
     const aoi = parseAoiFromForm(form);
     if (!aoi) return null;
     const scenes = generateAvailableScenes({ ...form, platform: 'S1', s1a: true, s1c: true });
@@ -398,46 +408,74 @@ function recommendAnalysis(form: RequestForm): Recommendation | null {
     const spanLabel = spanYears >= 1 ? `${spanYears.toFixed(1)}년` : `${Math.round(spanDays / 30)}개월`;
     const n = scenes.length;
 
-    let type: AnalysisType;
-    let reason: string;
-    if (n < 5 || spanDays < 60) {
-        type = 'DInSAR';
-        reason = `짧은 기간·소수(${n}장) 데이터라 두 시점 간 변화를 보는 DInSAR 가 적합합니다.`;
-    } else if (spanYears >= 2 && n >= 25) {
-        type = 'PSInSAR';
-        reason = `장기(${spanLabel})·다수(${n}장) 관측이라 영구 산란체 통계가 충분해 PSInSAR 가 적합합니다.`;
-    } else {
-        type = 'SBAS';
-        reason = `중장기(${spanLabel})·${n}장 데이터로 분산 산란체 시계열을 보는 SBAS 가 적합합니다.`;
-    }
+    // 스택(SBAS/PSI) 공용 — 기준 B⊥ 중앙값 대비 임계 이내 scene.
+    const sorted = [...scenes].sort((a, b) => a.perpBaseline - b.perpBaseline);
+    const refPerp = sorted[Math.floor(sorted.length / 2)]!.perpBaseline;
+    const stackPick = scenes.filter((s) => Math.abs(s.perpBaseline - refPerp) <= PERP_WARN_M);
+    const stack = stackPick.length >= 2 ? stackPick : scenes;
+    const stackIds = stack.map((s) => s.id);
+    const stackRel = stack.map((s) => Math.abs(s.perpBaseline - refPerp));
+    const stackPerp = { min: Math.round(Math.min(...stackRel)), max: Math.round(Math.max(...stackRel)) };
 
-    let sceneIds: string[];
-    let perpRange: { min: number; max: number } | null = null;
-    if (type === 'DInSAR') {
-        sceneIds = bestDinsarPair(scenes);
-    } else {
-        // 스택: 기준(B⊥ 중앙값) 대비 |B⊥| 가 임계 이내인 scene 만 — 기존 opt-out 스택 모델과 동일.
-        const sorted = [...scenes].sort((a, b) => a.perpBaseline - b.perpBaseline);
-        const refPerp = sorted[Math.floor(sorted.length / 2)]!.perpBaseline;
-        const kept = scenes.filter((s) => Math.abs(s.perpBaseline - refPerp) <= PERP_WARN_M);
-        const chosen = kept.length >= 2 ? kept : scenes;
-        sceneIds = chosen.map((s) => s.id);
-        const rel = chosen.map((s) => Math.abs(s.perpBaseline - refPerp));
-        perpRange = { min: Math.round(Math.min(...rel)), max: Math.round(Math.max(...rel)) };
-    }
+    // DInSAR — 최적 페어 1쌍 + 그 페어의 품질(ΔT·식생 일치) 평가.
+    const pairIds = bestDinsarPair(scenes);
+    const pair = pairIds.map((id) => scenes.find((s) => s.id === id)).filter(Boolean) as AvailableScene[];
+    const pairGood =
+        pair.length === 2 &&
+        Math.abs((new Date(pair[0]!.isoDate).getTime() - new Date(pair[1]!.isoDate).getTime()) / day) <= 24 &&
+        vegState(pair[0]!.isoDate) !== 'transition' &&
+        vegState(pair[1]!.isoDate) !== 'transition' &&
+        vegState(pair[0]!.isoDate) === vegState(pair[1]!.isoDate);
 
-    const confidenceHint: Recommendation['confidenceHint'] =
-        type === 'DInSAR'
-            ? '보통'
-            : type === 'PSInSAR'
-              ? n >= 30
-                  ? '높음'
-                  : '보통'
-              : spanYears >= 1 && sceneIds.length >= 20
-                ? '높음'
-                : '보통';
+    const dinsar: Recommendation = {
+        type: 'DInSAR',
+        suitability: n < 2 ? 'poor' : pairGood ? 'good' : 'fair',
+        sceneIds: pairIds,
+        sceneCount: pairIds.length,
+        spanLabel,
+        reason:
+            n < 2
+                ? '페어를 만들 scene 이 부족합니다.'
+                : pairGood
+                  ? '시간 간격·식생 상태가 잘 맞는 페어가 있어 두 시점 변화 탐지에 적합합니다.'
+                  : '페어는 가능하나 시간 간격·계절이 어긋나 coherence 가 낮을 수 있습니다.',
+        perpRange: null,
+    };
 
-    return { type, sceneIds, sceneCount: sceneIds.length, spanLabel, reason, confidenceHint, perpRange };
+    const sbasGood = n >= 15 && spanDays >= 180;
+    const sbasFair = n >= 8 && spanDays >= 90;
+    const sbas: Recommendation = {
+        type: 'SBAS',
+        suitability: sbasGood ? 'good' : sbasFair ? 'fair' : 'poor',
+        sceneIds: stackIds,
+        sceneCount: stackIds.length,
+        spanLabel,
+        reason: sbasGood
+            ? `${n}장·${spanLabel} 으로 분산 산란체 시계열을 안정적으로 추정할 수 있습니다.`
+            : sbasFair
+              ? '데이터가 다소 부족하지만 추세 파악은 가능합니다(권장: 15장·6개월 이상).'
+              : 'scene·기간이 부족해 SBAS 시계열은 신뢰가 어렵습니다.',
+        perpRange: stackPerp,
+    };
+
+    const psiGood = n >= 25 && spanYears >= 2;
+    const psiFair = n >= 18 && spanYears >= 1;
+    const psi: Recommendation = {
+        type: 'PSInSAR',
+        suitability: psiGood ? 'good' : psiFair ? 'fair' : 'poor',
+        sceneIds: stackIds,
+        sceneCount: stackIds.length,
+        spanLabel,
+        reason: psiGood
+            ? `${n}장·${spanLabel} 으로 영구 산란체 통계가 충분합니다(도심·구조물에 강함).`
+            : psiFair
+              ? '동작은 하지만 PS 밀도·정밀도를 위해 25장·2년 이상을 권장합니다.'
+              : '장수·기간이 부족해 PS 후보 통계가 약합니다.',
+        perpRange: stackPerp,
+    };
+
+    const rank: Record<Suitability, number> = { good: 0, fair: 1, poor: 2 };
+    return [dinsar, sbas, psi].sort((a, b) => rank[a.suitability] - rank[b.suitability]);
 }
 
 /**
@@ -1524,12 +1562,6 @@ function FieldErrorMsg({ show, message }: { show: boolean; message?: string }) {
 // 자동 분석 요청 패널 — 위치(AOI)+기간만 받고 가장 적합한 분석을 추천·확인·진행한다.
 // ────────────────────────────────────────────────────────────────────────────
 
-const TYPE_LABEL: Record<AnalysisType, string> = {
-    DInSAR: 'DInSAR (두 시점 변화)',
-    SBAS: 'SBAS (분산 산란체 시계열)',
-    PSInSAR: 'PSInSAR (영구 산란체)',
-};
-
 function AutoRequestPanel({
     form,
     onChangeField,
@@ -1549,13 +1581,15 @@ function AutoRequestPanel({
     onAutoSubmit: (rec: Recommendation) => void;
     onOpenAdvanced: () => void;
 }) {
-    const [rec, setRec] = useState<Recommendation | null>(null);
+    const [assessments, setAssessments] = useState<Recommendation[] | null>(null);
+    const [selectedType, setSelectedType] = useState<AnalysisType | null>(null);
     const [recommending, setRecommending] = useState(false);
 
-    // 위치·기간이 바뀌면 이전 추천을 무효화한다.
+    // 위치·기간이 바뀌면 이전 평가를 무효화한다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
-        setRec(null);
+        setAssessments(null);
+        setSelectedType(null);
     }, [form.nwLat, form.nwLon, form.seLat, form.seLon, form.startDate, form.endDate]);
 
     const aoiBounds = (() => {
@@ -1572,7 +1606,9 @@ function AutoRequestPanel({
         setRecommending(true);
         // 실제로는 POST /api/v1/analysis/recommend. 지금은 클라이언트 mock.
         window.setTimeout(() => {
-            setRec(recommendAnalysis(form));
+            const list = assessMethods(form);
+            setAssessments(list);
+            setSelectedType(list?.[0]?.type ?? null); // 가장 적합한(추천) 기법을 기본 선택
             setRecommending(false);
         }, 600);
     };
@@ -1637,54 +1673,89 @@ function AutoRequestPanel({
                     background: 'var(--bg-1)',
                 }}
             >
-                {rec ? (
-                    <div
-                        className="col gap-2"
-                        style={{
-                            padding: 12,
-                            borderRadius: 6,
-                            background: 'var(--bg-2)',
-                            border: '1px solid var(--accent-border)',
-                        }}
-                    >
-                        <div className="row gap-2" style={{ alignItems: 'center' }}>
-                            <span className="badge" style={{ fontWeight: 600 }}>
-                                {rec.type}
-                            </span>
-                            <span className="faint" style={{ fontSize: 11 }}>
-                                자동 추천
-                            </span>
-                            <span className="badge" style={{ marginLeft: 'auto', fontSize: 10 }}>
-                                신뢰도 {rec.confidenceHint}
-                            </span>
-                        </div>
-                        <div style={{ fontSize: 12, lineHeight: 1.5 }}>
-                            기간 <b>{rec.spanLabel}</b> · <b>{rec.sceneCount}장</b>으로{' '}
-                            <b>{TYPE_LABEL[rec.type]}</b> 처리하겠습니다.
-                            {rec.perpRange ? (
-                                <span className="faint mono tabular" style={{ fontSize: 10.5 }}>
-                                    {' '}
-                                    (|B⊥| {rec.perpRange.min}~{rec.perpRange.max}m)
-                                </span>
-                            ) : null}
-                        </div>
+                {assessments ? (
+                    <div className="col gap-2">
                         <div className="faint" style={{ fontSize: 11, lineHeight: 1.5 }}>
-                            {rec.reason} 진행하시겠습니까?
+                            분석 기법을 선택하세요 — 현재 위치·기간 데이터 기준 예상 적합도입니다.
                         </div>
-                        <div className="row gap-2" style={{ marginTop: 4 }}>
-                            <button
-                                type="button"
-                                className="btn btn--primary"
-                                style={{ flex: 1 }}
-                                onClick={() => onAutoSubmit(rec)}
-                                disabled={submitting}
-                            >
-                                {submitting ? '처리 시작 중…' : '진행하기'}
-                            </button>
-                            <button type="button" className="btn btn--ghost btn--sm" onClick={onOpenAdvanced}>
-                                고급 조정
-                            </button>
-                        </div>
+                        {assessments.map((a, i) => {
+                            const sel = selectedType === a.type;
+                            const meta = SUITABILITY_META[a.suitability];
+                            return (
+                                <button
+                                    key={a.type}
+                                    type="button"
+                                    onClick={() => setSelectedType(a.type)}
+                                    style={{
+                                        textAlign: 'left',
+                                        padding: '8px 10px',
+                                        borderRadius: 6,
+                                        border: `1px solid ${sel ? 'var(--accent)' : 'var(--border-default)'}`,
+                                        background: sel ? 'var(--accent-soft)' : 'var(--bg-2)',
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    <div className="row gap-2" style={{ alignItems: 'center' }}>
+                                        <span
+                                            style={{
+                                                width: 12,
+                                                height: 12,
+                                                borderRadius: '50%',
+                                                border: `3px solid ${sel ? 'var(--accent)' : 'var(--border-default)'}`,
+                                                background: sel ? '#fff' : 'transparent',
+                                                flexShrink: 0,
+                                            }}
+                                        />
+                                        <span style={{ fontWeight: 600, fontSize: 12.5 }}>{a.type}</span>
+                                        {i === 0 ? (
+                                            <span className="badge" style={{ fontSize: 9 }}>
+                                                추천
+                                            </span>
+                                        ) : null}
+                                        <span
+                                            style={{
+                                                marginLeft: 'auto',
+                                                color: meta.color,
+                                                fontWeight: 600,
+                                                fontSize: 11,
+                                            }}
+                                        >
+                                            ● {meta.label}
+                                        </span>
+                                    </div>
+                                    <div
+                                        className="faint"
+                                        style={{ fontSize: 10.5, lineHeight: 1.45, marginTop: 4 }}
+                                    >
+                                        {a.reason}
+                                    </div>
+                                    <div className="faint mono tabular" style={{ fontSize: 10, marginTop: 2 }}>
+                                        {a.sceneCount}장
+                                        {a.perpRange ? ` · |B⊥| ${a.perpRange.min}~${a.perpRange.max}m` : ''}
+                                    </div>
+                                </button>
+                            );
+                        })}
+                        <button
+                            type="button"
+                            className="btn btn--primary"
+                            style={{ width: '100%', marginTop: 4 }}
+                            onClick={() => {
+                                const chosen = assessments.find((a) => a.type === selectedType);
+                                if (chosen) onAutoSubmit(chosen);
+                            }}
+                            disabled={submitting || !selectedType}
+                        >
+                            {submitting ? '처리 시작 중…' : `${selectedType ?? ''} 로 진행하기`}
+                        </button>
+                        <button
+                            type="button"
+                            className="btn btn--ghost btn--sm"
+                            style={{ width: '100%' }}
+                            onClick={onOpenAdvanced}
+                        >
+                            고급 설정 (직접 선택)
+                        </button>
                     </div>
                 ) : (
                     <>
