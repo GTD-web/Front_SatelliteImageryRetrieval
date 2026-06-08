@@ -6,15 +6,13 @@
  * 쓴다 — 직렬화/비교가 단순하고 프로젝트의 기존 타입 스타일과 일치한다.)
  */
 
-export type UserRole = 'admin' | 'downloader' | 'viewer' | 'pending';
+export type UserRole = 'admin' | 'user';
 export type UserStatus = 'active' | 'pending' | 'inactive';
 
 /** 역할 → 한글 라벨. */
 export const USER_ROLE_LABELS: Record<UserRole, string> = {
     admin: '관리자',
-    downloader: '다운로더',
-    viewer: '뷰어',
-    pending: '승인 필요',
+    user: '사용자',
 };
 
 /** 상태 → 한글 라벨. */
@@ -27,9 +25,7 @@ export const USER_STATUS_LABELS: Record<UserStatus, string> = {
 /** 역할 배지에 적용할 CSS 클래스. 색상도 역할과 함께 한곳에서 관리한다. */
 export const USER_ROLE_BADGE_CLASS: Record<UserRole, string> = {
     admin: 'badge badge--brand2',
-    downloader: 'badge badge--accent',
-    viewer: 'badge badge--neutral',
-    pending: 'badge badge--warning',
+    user: 'badge badge--neutral',
 };
 
 /** 상태 배지에 적용할 CSS 클래스. */
@@ -40,7 +36,7 @@ export const USER_STATUS_CLASS: Record<UserStatus, string> = {
 };
 
 /** 필터/목록 등에서 쓰는 전체 역할 순서. */
-export const USER_ROLES: UserRole[] = ['admin', 'downloader', 'viewer', 'pending'];
+export const USER_ROLES: UserRole[] = ['admin', 'user'];
 
-/** 가입 승인 후 부여 가능한 역할(가입 전 단계인 pending 제외). 편집 패널 역할 선택지로 쓴다. */
-export const EDITABLE_USER_ROLES: Exclude<UserRole, 'pending'>[] = ['admin', 'downloader', 'viewer'];
+/** 부여 가능한 역할. 초대/편집 패널의 역할 선택지로 쓴다. */
+export const EDITABLE_USER_ROLES: UserRole[] = ['admin', 'user'];

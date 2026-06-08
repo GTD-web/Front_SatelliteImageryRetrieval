@@ -33,7 +33,7 @@ const INITIAL: User[] = [
     {
         email: 'kim@ksit.re.kr',
         name: '김연구원',
-        role: 'downloader',
+        role: 'user',
         status: 'active',
         joined: '2025-08-12',
         last: '2분 전',
@@ -44,7 +44,7 @@ const INITIAL: User[] = [
     {
         email: 'park@ksit.re.kr',
         name: '박지수',
-        role: 'downloader',
+        role: 'user',
         status: 'active',
         joined: '2025-09-03',
         last: '15분 전',
@@ -55,7 +55,7 @@ const INITIAL: User[] = [
     {
         email: 'lee@labs.kr',
         name: '이민호',
-        role: 'viewer',
+        role: 'user',
         status: 'active',
         joined: '2026-01-14',
         last: '1시간 전',
@@ -65,7 +65,7 @@ const INITIAL: User[] = [
     {
         email: 'choi@univ.ac.kr',
         name: '최윤라',
-        role: 'pending',
+        role: 'user',
         status: 'pending',
         joined: '2026-04-23',
         last: '—',
@@ -76,7 +76,7 @@ const INITIAL: User[] = [
     {
         email: 'jung@ksit.re.kr',
         name: '정소현',
-        role: 'pending',
+        role: 'user',
         status: 'pending',
         joined: '2026-04-24',
         last: '—',
@@ -98,7 +98,7 @@ const INITIAL: User[] = [
     {
         email: 'yoon@ksit.re.kr',
         name: '윤재민',
-        role: 'viewer',
+        role: 'user',
         status: 'inactive',
         joined: '2025-02-20',
         last: '3개월 전',
@@ -143,13 +143,13 @@ export default function UsersPage() {
         const ok = await confirm({
             title: '가입 승인',
             body: `${email} 사용자의 가입을 승인하시겠습니까?`,
-            sub: '승인하면 viewer 권한으로 활성화되고, 사용자에게 초기 비밀번호 설정 메일이 발송됩니다.',
+            sub: '승인하면 사용자 권한으로 활성화되고, 사용자에게 초기 비밀번호 설정 메일이 발송됩니다.',
             confirmLabel: '승인',
         });
         if (!ok) return;
         setUsers((prev) =>
             prev.map((u) =>
-                u.email === email ? { ...u, status: 'active' as UserStatus, role: 'viewer' as UserRole, last: '방금' } : u,
+                u.email === email ? { ...u, status: 'active' as UserStatus, role: 'user' as UserRole, last: '방금' } : u,
             ),
         );
         setReviewing(null);
@@ -171,7 +171,7 @@ export default function UsersPage() {
         toast(`${email} 거절됨`);
     };
 
-    const invite = (email: string, role: Exclude<UserRole, 'pending'>) => {
+    const invite = (email: string, role: UserRole) => {
         // Mock: 백엔드 연결 후 POST /api/v1/auth/invitations 로 교체(초대 토큰 메일 발송).
         setUsers((prev) => {
             if (prev.some((u) => u.email.toLowerCase() === email.toLowerCase())) return prev;
@@ -531,14 +531,14 @@ function DetailRow({ label, value, mono }: { label: string; value: string; mono?
 
 interface InviteModalProps {
     onClose: () => void;
-    onInvite: (email: string, role: Exclude<UserRole, 'pending'>) => void;
+    onInvite: (email: string, role: UserRole) => void;
 }
 
 /** 초대 메일 입력 폼 — 이메일 + 부여할 역할 + 안내 메시지(선택). */
 function InviteModal({ onClose, onInvite }: InviteModalProps) {
     const toast = useToast();
     const [email, setEmail] = useState('');
-    const [role, setRole] = useState<Exclude<UserRole, 'pending'>>('viewer');
+    const [role, setRole] = useState<UserRole>('user');
     const [message, setMessage] = useState('');
     const [sending, setSending] = useState(false);
 
@@ -597,7 +597,7 @@ function InviteModal({ onClose, onInvite }: InviteModalProps) {
                         className="select"
                         style={{ width: '100%' }}
                         value={role}
-                        onChange={(e) => setRole(e.target.value as Exclude<UserRole, 'pending'>)}
+                        onChange={(e) => setRole(e.target.value as UserRole)}
                     >
                         {EDITABLE_USER_ROLES.map((r) => (
                             <option key={r} value={r}>

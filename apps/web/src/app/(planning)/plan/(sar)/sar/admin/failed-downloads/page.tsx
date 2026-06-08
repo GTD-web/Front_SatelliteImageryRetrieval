@@ -253,9 +253,12 @@ export default function FailedDownloadsPage() {
                                         />
                                     </th>
                                     <th style={{ width: 56 }}>미리보기</th>
+                                    <th style={{ width: 64 }}>종류</th>
                                     <th>Scene</th>
-                                    <th>실패 사유</th>
-                                    <th>요청자</th>
+                                    <th style={{ width: 110 }}>사유</th>
+                                    <th>상세</th>
+                                    <th>이름</th>
+                                    <th>이메일</th>
                                     <th className="num">용량</th>
                                     <th className="num">재시도</th>
                                     <th>실패 시각</th>
@@ -277,17 +280,17 @@ export default function FailedDownloadsPage() {
                                             <Quicklook sceneId={j.scene} size={40} product={j.productKind} />
                                         </td>
                                         <td>
+                                            <span
+                                                className={`badge ${PRODUCT_TONE[j.productKind]}`}
+                                                style={{ fontSize: 10 }}
+                                            >
+                                                {j.productKind}
+                                            </span>
+                                        </td>
+                                        <td>
                                             <div className="col" style={{ gap: 2 }}>
-                                                <div className="row gap-2">
-                                                    <span
-                                                        className={`badge ${PRODUCT_TONE[j.productKind]}`}
-                                                        style={{ fontSize: 10 }}
-                                                    >
-                                                        {j.productKind}
-                                                    </span>
-                                                    <div className="mono" style={{ fontSize: 11.5 }}>
-                                                        {j.scene}
-                                                    </div>
+                                                <div className="mono" style={{ fontSize: 11.5 }}>
+                                                    {j.scene}
                                                 </div>
                                                 <div className="mono faint" style={{ fontSize: 11 }}>
                                                     {j.id}
@@ -295,25 +298,21 @@ export default function FailedDownloadsPage() {
                                             </div>
                                         </td>
                                         <td>
-                                            <div className="col" style={{ gap: 2 }}>
-                                                <span className={`badge ${KIND_TONE[j.kind]}`} style={{ fontSize: 10 }}>
-                                                    {KIND_LABEL[j.kind]}
-                                                </span>
-                                                <span
-                                                    className="faint"
-                                                    style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}
-                                                >
-                                                    {j.detail}
-                                                </span>
-                                            </div>
+                                            <span className={`badge ${KIND_TONE[j.kind]}`} style={{ fontSize: 10 }}>
+                                                {KIND_LABEL[j.kind]}
+                                            </span>
                                         </td>
                                         <td>
-                                            <div className="col" style={{ gap: 2 }}>
-                                                <span style={{ fontSize: 12.5 }}>{j.user}</span>
-                                                <span className="mono faint" style={{ fontSize: 11 }}>
-                                                    {j.email}
-                                                </span>
-                                            </div>
+                                            <span
+                                                className="faint"
+                                                style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}
+                                            >
+                                                {j.detail}
+                                            </span>
+                                        </td>
+                                        <td style={{ fontSize: 12.5 }}>{j.user}</td>
+                                        <td className="mono faint" style={{ fontSize: 11 }}>
+                                            {j.email}
                                         </td>
                                         <td className="num tabular mono" style={{ fontSize: 12 }}>
                                             {j.size}
