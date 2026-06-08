@@ -338,6 +338,108 @@ function vegState(isoDate: string): 'bare' | 'transition' | 'leaf' {
     return 'bare'; // 늦가을~초봄 (낙엽/겨울)
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// 자동 추천 — 기간+AOI 만으로 분석 유형·scene 을 자동 선택한다.
+//
+// 지금은 클라이언트 mock(generateAvailableScenes 기반)이다. 실제로는 백엔드
+// 추천 엔드포인트(가칭 POST /api/v1/analysis/recommend)가 정밀궤도·baseline·
+// coherence proxy·토지피복으로 가장 좋은 스택을 골라 내려준다. 진행(승인) 시에는
+// POST /api/v1/jobs/{dinsar|sbas|psi}(auto_ingest:true)로 job 을 생성하고
+// GET /api/v1/jobs/{id} 로 진행률을 polling 한다.
+// ────────────────────────────────────────────────────────────────────────────
+
+interface Recommendation {
+    type: AnalysisType;
+    sceneIds: string[];
+    sceneCount: number;
+    spanLabel: string;
+    reason: string;
+    confidenceHint: '높음' | '보통' | '낮음';
+    /** 스택(SBAS/PSInSAR) 기준 대비 |B⊥| 범위(m). DInSAR 은 null. */
+    perpRange: { min: number; max: number } | null;
+}
+
+/** DInSAR 최적 페어 — ΔT≤24일·식생 상태 일치·작은 |B⊥| 우선. 없으면 비용 최소 페어. */
+function bestDinsarPair(scenes: AvailableScene[]): string[] {
+    if (scenes.length < 2) return scenes.map((s) => s.id);
+    const day = 24 * 60 * 60 * 1000;
+    let best: { ids: [string, string]; cost: number } | null = null;
+    for (let i = 0; i < scenes.length; i++) {
+        for (let j = i + 1; j < scenes.length; j++) {
+            const a = scenes[i]!;
+            const b = scenes[j]!;
+            const days = Math.abs((new Date(a.isoDate).getTime() - new Date(b.isoDate).getTime()) / day);
+            const perp = Math.abs(a.perpBaseline - b.perpBaseline);
+            const phenologyMismatch =
+                vegState(a.isoDate) === 'transition' ||
+                vegState(b.isoDate) === 'transition' ||
+                vegState(a.isoDate) !== vegState(b.isoDate);
+            // 낮을수록 좋은 비용: ΔT + B⊥ 가중 + (24일 초과·식생 불일치) 페널티
+            const cost = days + perp * 0.5 + (days > 24 ? 500 : 0) + (phenologyMismatch ? 1000 : 0);
+            if (!best || cost < best.cost) best = { ids: [a.id, b.id], cost };
+        }
+    }
+    return best ? [...best.ids] : scenes.slice(0, 2).map((s) => s.id);
+}
+
+/**
+ * 가용 데이터로 분석 유형과 scene 을 자동 추천한다(mock).
+ * SDK_Snap 결론(도심=PSI / 광역=SBAS / 단기·소수=DInSAR)을 scene 수·기간으로 근사한다.
+ * 자동 모드는 위성도 자동 선택하므로 S1A+S1C 컨스텔레이션 전부를 후보로 둔다.
+ */
+function recommendAnalysis(form: RequestForm): Recommendation | null {
+    const aoi = parseAoiFromForm(form);
+    if (!aoi) return null;
+    const scenes = generateAvailableScenes({ ...form, platform: 'S1', s1a: true, s1c: true });
+    if (scenes.length === 0) return null;
+    const day = 24 * 60 * 60 * 1000;
+    const spanDays = Math.max(0, (form.endDate.getTime() - form.startDate.getTime()) / day);
+    const spanYears = spanDays / 365.25;
+    const spanLabel = spanYears >= 1 ? `${spanYears.toFixed(1)}년` : `${Math.round(spanDays / 30)}개월`;
+    const n = scenes.length;
+
+    let type: AnalysisType;
+    let reason: string;
+    if (n < 5 || spanDays < 60) {
+        type = 'DInSAR';
+        reason = `짧은 기간·소수(${n}장) 데이터라 두 시점 간 변화를 보는 DInSAR 가 적합합니다.`;
+    } else if (spanYears >= 2 && n >= 25) {
+        type = 'PSInSAR';
+        reason = `장기(${spanLabel})·다수(${n}장) 관측이라 영구 산란체 통계가 충분해 PSInSAR 가 적합합니다.`;
+    } else {
+        type = 'SBAS';
+        reason = `중장기(${spanLabel})·${n}장 데이터로 분산 산란체 시계열을 보는 SBAS 가 적합합니다.`;
+    }
+
+    let sceneIds: string[];
+    let perpRange: { min: number; max: number } | null = null;
+    if (type === 'DInSAR') {
+        sceneIds = bestDinsarPair(scenes);
+    } else {
+        // 스택: 기준(B⊥ 중앙값) 대비 |B⊥| 가 임계 이내인 scene 만 — 기존 opt-out 스택 모델과 동일.
+        const sorted = [...scenes].sort((a, b) => a.perpBaseline - b.perpBaseline);
+        const refPerp = sorted[Math.floor(sorted.length / 2)]!.perpBaseline;
+        const kept = scenes.filter((s) => Math.abs(s.perpBaseline - refPerp) <= PERP_WARN_M);
+        const chosen = kept.length >= 2 ? kept : scenes;
+        sceneIds = chosen.map((s) => s.id);
+        const rel = chosen.map((s) => Math.abs(s.perpBaseline - refPerp));
+        perpRange = { min: Math.round(Math.min(...rel)), max: Math.round(Math.max(...rel)) };
+    }
+
+    const confidenceHint: Recommendation['confidenceHint'] =
+        type === 'DInSAR'
+            ? '보통'
+            : type === 'PSInSAR'
+              ? n >= 30
+                  ? '높음'
+                  : '보통'
+              : spanYears >= 1 && sceneIds.length >= 20
+                ? '높음'
+                : '보통';
+
+    return { type, sceneIds, sceneCount: sceneIds.length, spanLabel, reason, confidenceHint, perpRange };
+}
+
 /**
  * 스택의 기준(super-master) scene id — 기준 대비 |B⊥| 분산을 최소화하도록 perpBaseline 중앙값 scene 선택.
  * 실제 백엔드(GET /api/v1/baseline)에서는 정밀궤도 기반으로 기준·상대 B⊥ 를 계산해 내려준다.
@@ -711,6 +813,22 @@ function InsarRequestPageInner() {
             router.push('/plan/sar/user/insar/results');
         }, 700);
     };
+    // 자동 추천 결과로 바로 제출 — 추천 유형/scene 을 폼에 채우고 처리를 시작한다.
+    // 실제로는 POST /api/v1/jobs/{type}(auto_ingest:true) 호출 후 결과 화면에서 polling.
+    const submitRecommendation = (rec: Recommendation) => {
+        setRequest((r) => ({ ...r, type: rec.type, ...AUTO_PARAMS[rec.type] }));
+        setSelectedSceneIds(new Set(rec.sceneIds));
+        setSubmitting(true);
+        window.setTimeout(() => {
+            setSubmitting(false);
+            toast(`${rec.type} — 자동 선택 ${rec.sceneCount}개 scene 으로 요청 접수`, {
+                tone: 'success',
+                title: '요청 접수',
+            });
+            setSelectedSceneIds(new Set());
+            router.push('/plan/sar/user/insar/results');
+        }, 700);
+    };
     const resetRequest = () => {
         setRequest(buildDefaultRequest());
         setSelectedSceneIds(new Set());
@@ -737,6 +855,7 @@ function InsarRequestPageInner() {
                         availableCount={availableScenes.length}
                         submitting={submitting}
                         onSubmit={submitRequest}
+                        onAutoSubmit={submitRecommendation}
                         onProceedToScenes={proceedToScenes}
                         fieldError={fieldError}
                         onReset={resetRequest}
@@ -1402,6 +1521,198 @@ function FieldErrorMsg({ show, message }: { show: boolean; message?: string }) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// 자동 분석 요청 패널 — 위치(AOI)+기간만 받고 가장 적합한 분석을 추천·확인·진행한다.
+// ────────────────────────────────────────────────────────────────────────────
+
+const TYPE_LABEL: Record<AnalysisType, string> = {
+    DInSAR: 'DInSAR (두 시점 변화)',
+    SBAS: 'SBAS (분산 산란체 시계열)',
+    PSInSAR: 'PSInSAR (영구 산란체)',
+};
+
+function AutoRequestPanel({
+    form,
+    onChangeField,
+    fieldError,
+    submitting,
+    onAoiHover,
+    onAoiApplied,
+    onAutoSubmit,
+    onOpenAdvanced,
+}: {
+    form: RequestForm;
+    onChangeField: <K extends keyof RequestForm>(key: K, value: RequestForm[K]) => void;
+    fieldError: FieldError | null;
+    submitting: boolean;
+    onAoiHover: (aoi: SavedAoi | null) => void;
+    onAoiApplied: (aoi: SavedAoi) => void;
+    onAutoSubmit: (rec: Recommendation) => void;
+    onOpenAdvanced: () => void;
+}) {
+    const [rec, setRec] = useState<Recommendation | null>(null);
+    const [recommending, setRecommending] = useState(false);
+
+    // 위치·기간이 바뀌면 이전 추천을 무효화한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => {
+        setRec(null);
+    }, [form.nwLat, form.nwLon, form.seLat, form.seLon, form.startDate, form.endDate]);
+
+    const aoiBounds = (() => {
+        const nlat = parseFloat(form.nwLat);
+        const nlon = parseFloat(form.nwLon);
+        const slat = parseFloat(form.seLat);
+        const slon = parseFloat(form.seLon);
+        if (![nlat, nlon, slat, slon].every(Number.isFinite)) return null;
+        if (nlat <= slat || slon <= nlon) return null;
+        return { nwLat: nlat, nwLon: nlon, seLat: slat, seLon: slon };
+    })();
+
+    const runRecommend = () => {
+        setRecommending(true);
+        // 실제로는 POST /api/v1/analysis/recommend. 지금은 클라이언트 mock.
+        window.setTimeout(() => {
+            setRec(recommendAnalysis(form));
+            setRecommending(false);
+        }, 600);
+    };
+
+    return (
+        <div style={{ flex: 1, overflow: 'auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: 14, borderBottom: '1px solid var(--border-subtle)' }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>자동 분석</div>
+                <div className="faint" style={{ fontSize: 11.5, lineHeight: 1.5, marginTop: 4 }}>
+                    위치와 기간만 정하면 가장 적합한 데이터와 분석 방식을 자동으로 선택해 처리합니다.
+                </div>
+            </div>
+
+            <Section title="위치 (AOI)" hint="지도에서 그리거나 라이브러리에서 불러옵니다.">
+                <div className="col gap-2">
+                    <div className="row gap-2" style={{ flexWrap: 'wrap' }}>
+                        <SaveAoiButton bounds={aoiBounds} />
+                        <LoadAoiMenu
+                            onHover={onAoiHover}
+                            onApply={(a) => {
+                                onChangeField('nwLat', a.nwLat.toFixed(4));
+                                onChangeField('nwLon', a.nwLon.toFixed(4));
+                                onChangeField('seLat', a.seLat.toFixed(4));
+                                onChangeField('seLon', a.seLon.toFixed(4));
+                                onAoiApplied(a);
+                            }}
+                        />
+                    </div>
+                    <div className="row gap-2">
+                        <LabeledInput label="NW lat" value={form.nwLat} onChange={(v) => onChangeField('nwLat', v)} />
+                        <LabeledInput label="NW lon" value={form.nwLon} onChange={(v) => onChangeField('nwLon', v)} />
+                    </div>
+                    <div className="row gap-2">
+                        <LabeledInput label="SE lat" value={form.seLat} onChange={(v) => onChangeField('seLat', v)} />
+                        <LabeledInput label="SE lon" value={form.seLon} onChange={(v) => onChangeField('seLon', v)} />
+                    </div>
+                    <FieldErrorMsg show={fieldError?.field === 'aoi'} message={fieldError?.message} />
+                </div>
+            </Section>
+
+            <Section title="기간">
+                <DateRangePicker
+                    start={form.startDate}
+                    end={form.endDate}
+                    maxDate={new Date()}
+                    onChange={(s, e) => {
+                        onChangeField('startDate', s);
+                        onChangeField('endDate', e);
+                    }}
+                />
+            </Section>
+
+            <Section title="AOI 사전 점검" hint="무거운 처리 전에 coherence·토지피복·경사를 진단합니다.">
+                <AoiAssessPanel form={form} />
+            </Section>
+
+            <div
+                style={{
+                    marginTop: 'auto',
+                    padding: 14,
+                    borderTop: '1px solid var(--border-subtle)',
+                    background: 'var(--bg-1)',
+                }}
+            >
+                {rec ? (
+                    <div
+                        className="col gap-2"
+                        style={{
+                            padding: 12,
+                            borderRadius: 6,
+                            background: 'var(--bg-2)',
+                            border: '1px solid var(--accent-border)',
+                        }}
+                    >
+                        <div className="row gap-2" style={{ alignItems: 'center' }}>
+                            <span className="badge" style={{ fontWeight: 600 }}>
+                                {rec.type}
+                            </span>
+                            <span className="faint" style={{ fontSize: 11 }}>
+                                자동 추천
+                            </span>
+                            <span className="badge" style={{ marginLeft: 'auto', fontSize: 10 }}>
+                                신뢰도 {rec.confidenceHint}
+                            </span>
+                        </div>
+                        <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+                            기간 <b>{rec.spanLabel}</b> · <b>{rec.sceneCount}장</b>으로{' '}
+                            <b>{TYPE_LABEL[rec.type]}</b> 처리하겠습니다.
+                            {rec.perpRange ? (
+                                <span className="faint mono tabular" style={{ fontSize: 10.5 }}>
+                                    {' '}
+                                    (|B⊥| {rec.perpRange.min}~{rec.perpRange.max}m)
+                                </span>
+                            ) : null}
+                        </div>
+                        <div className="faint" style={{ fontSize: 11, lineHeight: 1.5 }}>
+                            {rec.reason} 진행하시겠습니까?
+                        </div>
+                        <div className="row gap-2" style={{ marginTop: 4 }}>
+                            <button
+                                type="button"
+                                className="btn btn--primary"
+                                style={{ flex: 1 }}
+                                onClick={() => onAutoSubmit(rec)}
+                                disabled={submitting}
+                            >
+                                {submitting ? '처리 시작 중…' : '진행하기'}
+                            </button>
+                            <button type="button" className="btn btn--ghost btn--sm" onClick={onOpenAdvanced}>
+                                고급 조정
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    <>
+                        <button
+                            type="button"
+                            className="btn btn--primary"
+                            style={{ width: '100%' }}
+                            onClick={runRecommend}
+                            disabled={recommending}
+                        >
+                            {recommending ? '데이터 분석 중…' : '분석 요청'}
+                        </button>
+                        <button
+                            type="button"
+                            className="btn btn--ghost btn--sm"
+                            style={{ width: '100%', marginTop: 8 }}
+                            onClick={onOpenAdvanced}
+                        >
+                            고급 설정 (직접 선택)
+                        </button>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // 분석 요청 — 사이드바 (폼 + scene 선택)
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1413,6 +1724,8 @@ interface RequestSidebarProps {
     availableCount: number;
     submitting: boolean;
     onSubmit: () => void;
+    /** 자동 추천 결과로 바로 제출(자동 모드 진행). */
+    onAutoSubmit: (rec: Recommendation) => void;
     /** "이미지 선택" 클릭 시 폼 검증 — 통과하면 true (호출 측이 scene 탭으로 전환). */
     onProceedToScenes: () => boolean;
     /** 현재 검증 실패 필드/메시지 — 인라인 표시용. */
@@ -1444,6 +1757,7 @@ function RequestSidebar({
     availableCount,
     submitting,
     onSubmit,
+    onAutoSubmit,
     onProceedToScenes,
     fieldError,
     onReset,
@@ -1463,8 +1777,35 @@ function RequestSidebar({
     const minSel = ANALYSIS_META[form.type].minScenes;
     const ready = selectedCount >= minSel;
     const [sidebarTab, setSidebarTab] = useState<'options' | 'scenes'>('options');
+    const [mode, setMode] = useState<'auto' | 'advanced'>('auto');
+
+    // 기본은 자동 모드 — 위치+기간만 받아 추천·진행한다. 정밀 제어는 고급(수동) 모드에서.
+    if (mode === 'auto') {
+        return (
+            <AutoRequestPanel
+                form={form}
+                onChangeField={onChangeField}
+                fieldError={fieldError}
+                submitting={submitting}
+                onAoiHover={onAoiHover}
+                onAoiApplied={onAoiApplied}
+                onAutoSubmit={onAutoSubmit}
+                onOpenAdvanced={() => setMode('advanced')}
+            />
+        );
+    }
+
     return (
         <>
+            {/* 고급(수동) 모드 — 자동 추천으로 복귀 */}
+            <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => setMode('auto')}
+                style={{ margin: '8px 8px 0', alignSelf: 'flex-start' }}
+            >
+                ← 자동 추천으로
+            </button>
             {/* 상단 탭 — 검색 옵션 ↔ scene 선택 */}
             <div
                 role="tablist"
