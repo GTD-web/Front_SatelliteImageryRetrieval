@@ -352,8 +352,8 @@ type Suitability = 'good' | 'fair' | 'poor';
 
 const SUITABILITY_META: Record<Suitability, { label: string; color: string }> = {
     good: { label: '권장', color: 'var(--success)' },
-    fair: { label: '사용 가능', color: 'var(--warning)' },
-    poor: { label: '비권장', color: 'var(--danger)' },
+    fair: { label: '보통', color: 'var(--warning)' },
+    poor: { label: '지양', color: 'var(--danger)' },
 };
 
 interface Recommendation {
