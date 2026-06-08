@@ -993,7 +993,7 @@ function QaSummarySection({ productId }: { productId: string }) {
     return (
         <Section
             title="분석 신뢰도"
-            info="InSAR 결과는 변위가 커도 신뢰도가 낮을 수 있습니다. 코히런스·언랩·네트워크·대기 영향·잔차를 가중 합성한 점수입니다. 점수가 낮으면 결과를 그대로 믿지 않는 것이 좋습니다."
+            info={`InSAR 결과는 변위가 커도 신뢰도가 낮을 수 있습니다.\n코히런스·언랩·네트워크·대기 영향·잔차를 가중 합성한 점수입니다.\n점수가 낮으면 결과를 그대로 믿지 않는 것이 좋습니다.`}
         >
             <div className="col gap-2">
                 <div className="between" style={{ alignItems: 'center' }}>
@@ -1065,7 +1065,13 @@ function QaSummarySection({ productId }: { productId: string }) {
                                             }}
                                         />
                                         {d.label}
-                                        <InfoTip text={`${d.info}\n\n기준: ${d.rule}`} size={10} />
+                                        <InfoTip
+                                            text={`${d.info.replace(/\. /g, '.\n')}\n\n기준\n${d.rule
+                                                .split(' · ')
+                                                .map((r) => `• ${r}`)
+                                                .join('\n')}`}
+                                            size={10}
+                                        />
                                     </span>
                                     <span className="mono tabular" style={{ fontWeight: 600 }}>
                                         {d.fmt(raw)}

@@ -1670,7 +1670,7 @@ function AutoRequestPanel({
                         <div className="faint" style={{ fontSize: 11, lineHeight: 1.5 }}>
                             분석 기법을 선택하세요 — 현재 위치·기간 데이터 기준 예상 적합도입니다.
                         </div>
-                        {assessments.map((a, i) => {
+                        {assessments.map((a) => {
                             const sel = selectedType === a.type;
                             const meta = SUITABILITY_META[a.suitability];
                             return (
@@ -1699,11 +1699,6 @@ function AutoRequestPanel({
                                             }}
                                         />
                                         <span style={{ fontWeight: 600, fontSize: 12.5 }}>{a.type}</span>
-                                        {i === 0 ? (
-                                            <span className="badge" style={{ fontSize: 9 }}>
-                                                추천
-                                            </span>
-                                        ) : null}
                                         <span
                                             style={{
                                                 marginLeft: 'auto',
@@ -2442,7 +2437,7 @@ function ScenePickerInline({
                                 <span style={{ color: 'var(--text-tertiary)' }}>
                                     · B⊥ {baselineSummary.perp}m
                                 </span>{' '}
-                                <InfoTip text="coherence 는 실측이 아니라 시간 간격(ΔT)과 계절(식생 phenology) 기반 예측입니다. 실제 값은 간섭도 처리 후에 확인됩니다." />
+                                <InfoTip text={`coherence 는 실측이 아니라 시간 간격(ΔT)과 계절(식생 phenology) 기반 예측입니다.\n실제 값은 간섭도 처리 후에 확인됩니다.`} />
                             </>
                         ) : (
                             <>
@@ -2485,7 +2480,7 @@ function ScenePickerInline({
                                           겹침 {pct}%
                                       </span>
                                   </span>
-                                  <InfoTip text="InSAR 는 동일 track/slice 의 repeat-pass 페어에서만 가능합니다. footprint 겹침(bbox 근사)은 track 일치의 보조 지표로, 동일 track 이면 보통 ≥90% 이고 낮으면 track/slice 가 다를 수 있습니다. 정보용이며 제출은 가능합니다." />
+                                  <InfoTip text={`InSAR 는 동일 track/slice 의 repeat-pass 페어에서만 가능합니다.\nfootprint 겹침(bbox 근사)은 track 일치의 보조 지표로, 동일 track 이면 보통 ≥90%, 낮으면 track/slice 가 다를 수 있습니다.\n정보용이며 제출은 가능합니다.`} />
                               </div>
                           );
                       })()
