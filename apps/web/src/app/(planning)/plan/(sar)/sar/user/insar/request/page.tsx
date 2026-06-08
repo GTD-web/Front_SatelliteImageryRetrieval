@@ -351,9 +351,9 @@ function vegState(isoDate: string): 'bare' | 'transition' | 'leaf' {
 type Suitability = 'good' | 'fair' | 'poor';
 
 const SUITABILITY_META: Record<Suitability, { label: string; color: string }> = {
-    good: { label: '괜찮을 듯', color: 'var(--success)' },
-    fair: { label: '보통', color: 'var(--warning)' },
-    poor: { label: '좋지 않음', color: 'var(--danger)' },
+    good: { label: '권장', color: 'var(--success)' },
+    fair: { label: '사용 가능', color: 'var(--warning)' },
+    poor: { label: '비권장', color: 'var(--danger)' },
 };
 
 interface Recommendation {
@@ -1581,16 +1581,20 @@ function AutoRequestPanel({
     onAutoSubmit: (rec: Recommendation) => void;
     onOpenAdvanced: () => void;
 }) {
-    const [assessments, setAssessments] = useState<Recommendation[] | null>(null);
     const [selectedType, setSelectedType] = useState<AnalysisType | null>(null);
-    const [recommending, setRecommending] = useState(false);
 
-    // 위치·기간이 바뀌면 이전 평가를 무효화한다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // 위치·기간이 입력돼 있으면 버튼 없이 즉시 기법별 적합도를 평가한다(실제로는 추천 API 호출).
+    const assessments = useMemo(
+        () => assessMethods(form),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [form.nwLat, form.nwLon, form.seLat, form.seLon, form.startDate, form.endDate],
+    );
+    // 평가가 갱신되면 가장 적합한(추천) 기법을 기본 선택한다(사용자가 고른 값이 유효하면 유지).
     useEffect(() => {
-        setAssessments(null);
-        setSelectedType(null);
-    }, [form.nwLat, form.nwLon, form.seLat, form.seLon, form.startDate, form.endDate]);
+        setSelectedType((prev) =>
+            prev && assessments?.some((a) => a.type === prev) ? prev : (assessments?.[0]?.type ?? null),
+        );
+    }, [assessments]);
 
     const aoiBounds = (() => {
         const nlat = parseFloat(form.nwLat);
@@ -1601,17 +1605,6 @@ function AutoRequestPanel({
         if (nlat <= slat || slon <= nlon) return null;
         return { nwLat: nlat, nwLon: nlon, seLat: slat, seLon: slon };
     })();
-
-    const runRecommend = () => {
-        setRecommending(true);
-        // 실제로는 POST /api/v1/analysis/recommend. 지금은 클라이언트 mock.
-        window.setTimeout(() => {
-            const list = assessMethods(form);
-            setAssessments(list);
-            setSelectedType(list?.[0]?.type ?? null); // 가장 적합한(추천) 기법을 기본 선택
-            setRecommending(false);
-        }, 600);
-    };
 
     return (
         <div style={{ flex: 1, overflow: 'auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
@@ -1667,7 +1660,6 @@ function AutoRequestPanel({
 
             <div
                 style={{
-                    marginTop: 'auto',
                     padding: 14,
                     borderTop: '1px solid var(--border-subtle)',
                     background: 'var(--bg-1)',
@@ -1758,25 +1750,19 @@ function AutoRequestPanel({
                         </button>
                     </div>
                 ) : (
-                    <>
-                        <button
-                            type="button"
-                            className="btn btn--primary"
-                            style={{ width: '100%' }}
-                            onClick={runRecommend}
-                            disabled={recommending}
-                        >
-                            {recommending ? '데이터 분석 중…' : '분석 요청'}
-                        </button>
+                    <div className="col gap-2">
+                        <div className="faint" style={{ fontSize: 11.5, lineHeight: 1.5 }}>
+                            위치(AOI)와 기간을 설정하면 분석 기법별 예상 적합도가 표시됩니다.
+                        </div>
                         <button
                             type="button"
                             className="btn btn--ghost btn--sm"
-                            style={{ width: '100%', marginTop: 8 }}
+                            style={{ width: '100%' }}
                             onClick={onOpenAdvanced}
                         >
                             고급 설정 (직접 선택)
                         </button>
-                    </>
+                    </div>
                 )}
             </div>
         </div>
