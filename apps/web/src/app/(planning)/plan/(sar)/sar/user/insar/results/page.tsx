@@ -207,6 +207,11 @@ const COLORMAP_GRADIENTS: Record<Colormap, string> = {
     magma: 'linear-gradient(to right, #000004, #51127c, #b73779, #fc8961, #fcfdbf)',
 };
 
+/** 지도 범례 위젯의 컬러맵 토글에 넘길 옵션 목록. */
+const COLORMAP_OPTIONS: ReadonlyArray<{ id: Colormap; label: string }> = (
+    ['RdBu', 'viridis', 'magma'] as const
+).map((id) => ({ id, label: id }));
+
 const COLORMAP_STOPS: Record<Colormap, Array<[number, number, number]>> = {
     RdBu: [hex('#2563eb'), hex('#60a5fa'), hex('#f1f5f9'), hex('#fb923c'), hex('#dc2626')],
     viridis: [hex('#440154'), hex('#3b528b'), hex('#21918c'), hex('#5ec962'), hex('#fde725')],
@@ -333,6 +338,14 @@ export default function InsarResultsPage() {
     const product = useMemo(() => PRODUCTS.find((p) => p.id === selected) ?? PRODUCTS[0]!, [selected]);
     const filteredProducts = PRODUCTS.filter((p) => typeFilter === '전체' || p.type === typeFilter);
 
+    // 레이어 전환 — 범위 입력을 해당 단위 기본값으로 재설정한다(지도 select·범례 공용).
+    const changeLayer = (l: Layer) => {
+        setLayer(l);
+        const [lo, hi] = LAYER_DEFAULT_RANGE[l];
+        setRangeMin(lo);
+        setRangeMax(hi);
+    };
+
     const resultsPoints = useMemo<MapPoint[]>(
         () =>
             points.map((p) => ({
@@ -384,8 +397,15 @@ export default function InsarResultsPage() {
             min: fmt(lo),
             mid: fmt(mid),
             max: hi >= 0 ? `+${fmt(hi)}` : fmt(hi),
+            // 컬러맵·투명도 컨트롤을 지도 범례 위젯 안에서 직접 조작한다.
+            colormap: {
+                value: colormap,
+                options: COLORMAP_OPTIONS,
+                onChange: (id: string) => setColormap(id as Colormap),
+            },
+            opacity: { value: opacity, onChange: setOpacity },
         };
-    }, [layer, colormap, rangeMin, rangeMax]);
+    }, [layer, colormap, rangeMin, rangeMax, opacity]);
 
     // ── 점 시계열 ──────────────────────────────────────────────────────
     const nextPointId = () => {
@@ -449,19 +469,6 @@ export default function InsarResultsPage() {
                             setSelected(id);
                             setPoints([]);
                         }}
-                        layer={layer}
-                        onLayerChange={(l) => {
-                            setLayer(l);
-                            const [lo, hi] = LAYER_DEFAULT_RANGE[l];
-                            setRangeMin(lo);
-                            setRangeMax(hi);
-                        }}
-                        colormap={colormap}
-                        onColormapChange={setColormap}
-                        opacity={opacity}
-                        onOpacityChange={setOpacity}
-                        rangeMin={rangeMin}
-                        rangeMax={rangeMax}
                         currentProduct={product}
                         onShowScenes={() => setShowScenes(true)}
                         onDownload={() =>
@@ -506,7 +513,33 @@ export default function InsarResultsPage() {
                                 }}
                             >
                                 <Icon name="mapPin" size={11} style={{ marginRight: 6, opacity: 0.6 }} />
-                                {layer} · {opacity}% · 지도 클릭 → 시계열 점 추가
+                                {/* 컨테이너는 pointerEvents:none(지도 클릭 통과) — select 만 auto 로 살린다. */}
+                                <select
+                                    value={layer}
+                                    onChange={(e) => changeLayer(e.target.value as Layer)}
+                                    aria-label="레이어 선택"
+                                    style={{
+                                        pointerEvents: 'auto',
+                                        background: 'var(--bg-3)',
+                                        border: '1px solid var(--border-default)',
+                                        borderRadius: 4,
+                                        color: 'var(--text-primary)',
+                                        fontFamily: 'var(--font-mono)',
+                                        fontSize: 11.5,
+                                        fontWeight: 600,
+                                        padding: '1px 4px',
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    {(Object.keys(LAYER_META) as Layer[]).map((k) => (
+                                        <option key={k} value={k}>
+                                            {k}
+                                        </option>
+                                    ))}
+                                </select>
+                                <span style={{ marginLeft: 6 }}>
+                                    · {opacity}% · 지도 클릭 → 시계열 점 추가
+                                </span>
                             </div>
                         </MapCanvas>
                     </div>
@@ -545,14 +578,6 @@ interface ResultsSidebarProps {
     onTypeFilter: (t: '전체' | InsarProduct['type']) => void;
     selected: string;
     onSelect: (id: string) => void;
-    layer: Layer;
-    onLayerChange: (l: Layer) => void;
-    colormap: Colormap;
-    onColormapChange: (c: Colormap) => void;
-    opacity: number;
-    onOpacityChange: (n: number) => void;
-    rangeMin: number;
-    rangeMax: number;
     currentProduct: InsarProduct;
     onShowScenes: () => void;
     onDownload: () => void;
@@ -568,14 +593,6 @@ function ResultsSidebar({
     onTypeFilter,
     selected,
     onSelect,
-    layer,
-    onLayerChange,
-    colormap,
-    onColormapChange,
-    opacity,
-    onOpacityChange,
-    rangeMin,
-    rangeMax,
     currentProduct,
     onShowScenes,
     onDownload,
@@ -648,98 +665,6 @@ function ResultsSidebar({
                 </div>
 
                 <QaSummarySection productId={currentProduct.id} />
-
-                <Section title="레이어">
-                    <div className="col gap-1">
-                        {(Object.entries(LAYER_META) as [Layer, { unit: string; label: string }][]).map(
-                            ([k, meta]) => {
-                                const on = layer === k;
-                                return (
-                                    <div
-                                        key={k}
-                                        onClick={() => onLayerChange(k)}
-                                        className="between"
-                                        style={{
-                                            padding: '7px 10px',
-                                            borderRadius: 5,
-                                            background: on ? 'var(--accent-soft)' : 'transparent',
-                                            border: on
-                                                ? '1px solid var(--accent-border)'
-                                                : '1px solid transparent',
-                                            cursor: 'pointer',
-                                        }}
-                                    >
-                                        <span className="row gap-2">
-                                            <span
-                                                style={{
-                                                    width: 7,
-                                                    height: 7,
-                                                    borderRadius: 50,
-                                                    background: on
-                                                        ? 'var(--accent)'
-                                                        : 'var(--text-tertiary)',
-                                                }}
-                                            />
-                                            <span
-                                                className="mono"
-                                                style={{ fontSize: 11.5, fontWeight: on ? 600 : 400 }}
-                                            >
-                                                {k}
-                                            </span>
-                                        </span>
-                                        <span className="faint" style={{ fontSize: 10.5 }}>
-                                            {meta.unit}
-                                        </span>
-                                    </div>
-                                );
-                            },
-                        )}
-                    </div>
-                </Section>
-
-                <Section title="컬러맵">
-                    <div className="segmented" style={{ display: 'flex', width: '100%' }}>
-                        {(['RdBu', 'viridis', 'magma'] as const).map((cm) => (
-                            <button
-                                key={cm}
-                                type="button"
-                                className={colormap === cm ? 'active' : ''}
-                                style={{ flex: 1 }}
-                                onClick={() => onColormapChange(cm)}
-                            >
-                                {cm}
-                            </button>
-                        ))}
-                    </div>
-                    <div
-                        style={{
-                            marginTop: 8,
-                            height: 12,
-                            borderRadius: 3,
-                            background: COLORMAP_GRADIENTS[colormap],
-                            border: '1px solid var(--border-default)',
-                        }}
-                    />
-                    <div
-                        className="between mono tabular"
-                        style={{ fontSize: 10, marginTop: 4, color: 'var(--text-tertiary)' }}
-                    >
-                        <span>{rangeMin}</span>
-                        <span>0</span>
-                        <span>+{rangeMax}</span>
-                    </div>
-                </Section>
-
-                <Section title={`투명도 — ${opacity}%`}>
-                    <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        value={opacity}
-                        onChange={(e) => onOpacityChange(+e.target.value)}
-                        style={{ width: '100%', accentColor: 'var(--accent)' }}
-                    />
-                </Section>
 
                 <Section title={`선택된 점 (${points.length}/8)`}>
                     {points.length === 0 ? (
