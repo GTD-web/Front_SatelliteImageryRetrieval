@@ -89,6 +89,17 @@ export interface MapVelocityLegend {
     min?: string | number;
     mid?: string | number;
     max?: string | number;
+    /** 제공 시 범례 안에 컬러맵 선택 토글(segmented)을 그린다. 옵션·콜백은 호출자가 정의. */
+    colormap?: {
+        value: string;
+        options: ReadonlyArray<{ id: string; label: string }>;
+        onChange: (id: string) => void;
+    };
+    /** 제공 시 범례 안에 투명도 슬라이더(0–100)를 그린다. */
+    opacity?: {
+        value: number;
+        onChange: (n: number) => void;
+    };
 }
 
 interface Props {
@@ -854,6 +865,10 @@ export function MapCanvas({
         view.animate({ zoom: z + delta, duration: 200 });
     };
 
+    // velocity 범례 안에 그릴 인터랙티브 컨트롤 — 호출자가 넘긴 경우에만 노출.
+    const legendColormap = legend === 'velocity' ? legendOptions?.colormap : undefined;
+    const legendOpacity = legend === 'velocity' ? legendOptions?.opacity : undefined;
+
     return (
         <div className="map-stage" style={{ position: 'relative', width: '100%', height: '100%', ...style }}>
             <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
@@ -947,6 +962,51 @@ export function MapCanvas({
                                     <span>{legendOptions?.mid ?? '0'}</span>
                                     <span>{legendOptions?.max ?? '+30'}</span>
                                 </div>
+                                {legendColormap ? (
+                                    <div
+                                        className="segmented"
+                                        style={{ display: 'flex', width: '100%', marginTop: 8 }}
+                                    >
+                                        {legendColormap.options.map((o) => (
+                                            <button
+                                                key={o.id}
+                                                type="button"
+                                                className={legendColormap.value === o.id ? 'active' : ''}
+                                                style={{ flex: 1 }}
+                                                onClick={() => legendColormap.onChange(o.id)}
+                                            >
+                                                {o.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                ) : null}
+                                {legendOpacity ? (
+                                    <div style={{ marginTop: 8 }}>
+                                        <div
+                                            className="between tabular"
+                                            style={{
+                                                fontSize: 10,
+                                                color: 'var(--text-tertiary)',
+                                                marginBottom: 3,
+                                            }}
+                                        >
+                                            <span>투명도</span>
+                                            <span className="mono">{legendOpacity.value}%</span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min={0}
+                                            max={100}
+                                            value={legendOpacity.value}
+                                            onChange={(e) => legendOpacity.onChange(+e.target.value)}
+                                            style={{
+                                                width: '100%',
+                                                display: 'block',
+                                                accentColor: 'var(--accent)',
+                                            }}
+                                        />
+                                    </div>
+                                ) : null}
                             </>
                         ) : (
                             <>

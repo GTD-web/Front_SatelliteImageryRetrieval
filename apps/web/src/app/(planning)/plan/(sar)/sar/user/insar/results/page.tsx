@@ -207,6 +207,11 @@ const COLORMAP_GRADIENTS: Record<Colormap, string> = {
     magma: 'linear-gradient(to right, #000004, #51127c, #b73779, #fc8961, #fcfdbf)',
 };
 
+/** 지도 범례 위젯의 컬러맵 토글에 넘길 옵션 목록. */
+const COLORMAP_OPTIONS: ReadonlyArray<{ id: Colormap; label: string }> = (
+    ['RdBu', 'viridis', 'magma'] as const
+).map((id) => ({ id, label: id }));
+
 const COLORMAP_STOPS: Record<Colormap, Array<[number, number, number]>> = {
     RdBu: [hex('#2563eb'), hex('#60a5fa'), hex('#f1f5f9'), hex('#fb923c'), hex('#dc2626')],
     viridis: [hex('#440154'), hex('#3b528b'), hex('#21918c'), hex('#5ec962'), hex('#fde725')],
@@ -384,8 +389,15 @@ export default function InsarResultsPage() {
             min: fmt(lo),
             mid: fmt(mid),
             max: hi >= 0 ? `+${fmt(hi)}` : fmt(hi),
+            // 컬러맵·투명도 컨트롤을 지도 범례 위젯 안에서 직접 조작한다.
+            colormap: {
+                value: colormap,
+                options: COLORMAP_OPTIONS,
+                onChange: (id: string) => setColormap(id as Colormap),
+            },
+            opacity: { value: opacity, onChange: setOpacity },
         };
-    }, [layer, colormap, rangeMin, rangeMax]);
+    }, [layer, colormap, rangeMin, rangeMax, opacity]);
 
     // ── 점 시계열 ──────────────────────────────────────────────────────
     const nextPointId = () => {
@@ -456,12 +468,6 @@ export default function InsarResultsPage() {
                             setRangeMin(lo);
                             setRangeMax(hi);
                         }}
-                        colormap={colormap}
-                        onColormapChange={setColormap}
-                        opacity={opacity}
-                        onOpacityChange={setOpacity}
-                        rangeMin={rangeMin}
-                        rangeMax={rangeMax}
                         currentProduct={product}
                         onShowScenes={() => setShowScenes(true)}
                         onDownload={() =>
@@ -547,12 +553,6 @@ interface ResultsSidebarProps {
     onSelect: (id: string) => void;
     layer: Layer;
     onLayerChange: (l: Layer) => void;
-    colormap: Colormap;
-    onColormapChange: (c: Colormap) => void;
-    opacity: number;
-    onOpacityChange: (n: number) => void;
-    rangeMin: number;
-    rangeMax: number;
     currentProduct: InsarProduct;
     onShowScenes: () => void;
     onDownload: () => void;
@@ -570,12 +570,6 @@ function ResultsSidebar({
     onSelect,
     layer,
     onLayerChange,
-    colormap,
-    onColormapChange,
-    opacity,
-    onOpacityChange,
-    rangeMin,
-    rangeMax,
     currentProduct,
     onShowScenes,
     onDownload,
@@ -695,50 +689,6 @@ function ResultsSidebar({
                             },
                         )}
                     </div>
-                </Section>
-
-                <Section title="컬러맵">
-                    <div className="segmented" style={{ display: 'flex', width: '100%' }}>
-                        {(['RdBu', 'viridis', 'magma'] as const).map((cm) => (
-                            <button
-                                key={cm}
-                                type="button"
-                                className={colormap === cm ? 'active' : ''}
-                                style={{ flex: 1 }}
-                                onClick={() => onColormapChange(cm)}
-                            >
-                                {cm}
-                            </button>
-                        ))}
-                    </div>
-                    <div
-                        style={{
-                            marginTop: 8,
-                            height: 12,
-                            borderRadius: 3,
-                            background: COLORMAP_GRADIENTS[colormap],
-                            border: '1px solid var(--border-default)',
-                        }}
-                    />
-                    <div
-                        className="between mono tabular"
-                        style={{ fontSize: 10, marginTop: 4, color: 'var(--text-tertiary)' }}
-                    >
-                        <span>{rangeMin}</span>
-                        <span>0</span>
-                        <span>+{rangeMax}</span>
-                    </div>
-                </Section>
-
-                <Section title={`투명도 — ${opacity}%`}>
-                    <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        value={opacity}
-                        onChange={(e) => onOpacityChange(+e.target.value)}
-                        style={{ width: '100%', accentColor: 'var(--accent)' }}
-                    />
                 </Section>
 
                 <Section title={`선택된 점 (${points.length}/8)`}>
