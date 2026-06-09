@@ -1660,14 +1660,16 @@ function AutoRequestPanel({
 
             <div
                 style={{
-                    marginTop: 'auto',
+                    flex: '1 0 auto',
+                    display: 'flex',
+                    flexDirection: 'column',
                     padding: 14,
                     borderTop: '1px solid var(--border-subtle)',
                     background: 'var(--bg-1)',
                 }}
             >
                 {assessments ? (
-                    <div className="col gap-2">
+                    <div className="col gap-2" style={{ flex: 1 }}>
                         <div className="faint" style={{ fontSize: 11, lineHeight: 1.5 }}>
                             분석 기법을 선택하세요 — 현재 위치·기간 데이터 기준 예상 적합도입니다.
                         </div>
@@ -1727,7 +1729,7 @@ function AutoRequestPanel({
                         <button
                             type="button"
                             className="btn btn--primary"
-                            style={{ width: '100%', marginTop: 4 }}
+                            style={{ width: '100%', marginTop: 'auto' }}
                             onClick={() => {
                                 const chosen = assessments.find((a) => a.type === selectedType);
                                 if (chosen) onAutoSubmit(chosen);
@@ -1746,14 +1748,14 @@ function AutoRequestPanel({
                         </button>
                     </div>
                 ) : (
-                    <div className="col gap-2">
+                    <div className="col gap-2" style={{ flex: 1 }}>
                         <div className="faint" style={{ fontSize: 11.5, lineHeight: 1.5 }}>
                             위치(AOI)와 기간을 설정하면 분석 기법별 예상 적합도가 표시됩니다.
                         </div>
                         <button
                             type="button"
                             className="btn btn--ghost btn--sm"
-                            style={{ width: '100%' }}
+                            style={{ width: '100%', marginTop: 'auto' }}
                             onClick={onOpenAdvanced}
                         >
                             고급 설정 (직접 선택)
