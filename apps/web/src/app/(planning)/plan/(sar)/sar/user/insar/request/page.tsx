@@ -1660,6 +1660,7 @@ function AutoRequestPanel({
 
             <div
                 style={{
+                    marginTop: 'auto',
                     padding: 14,
                     borderTop: '1px solid var(--border-subtle)',
                     background: 'var(--bg-1)',
