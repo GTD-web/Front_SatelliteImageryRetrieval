@@ -338,6 +338,14 @@ export default function InsarResultsPage() {
     const product = useMemo(() => PRODUCTS.find((p) => p.id === selected) ?? PRODUCTS[0]!, [selected]);
     const filteredProducts = PRODUCTS.filter((p) => typeFilter === '전체' || p.type === typeFilter);
 
+    // 레이어 전환 — 범위 입력을 해당 단위 기본값으로 재설정한다(지도 select·범례 공용).
+    const changeLayer = (l: Layer) => {
+        setLayer(l);
+        const [lo, hi] = LAYER_DEFAULT_RANGE[l];
+        setRangeMin(lo);
+        setRangeMax(hi);
+    };
+
     const resultsPoints = useMemo<MapPoint[]>(
         () =>
             points.map((p) => ({
@@ -461,13 +469,6 @@ export default function InsarResultsPage() {
                             setSelected(id);
                             setPoints([]);
                         }}
-                        layer={layer}
-                        onLayerChange={(l) => {
-                            setLayer(l);
-                            const [lo, hi] = LAYER_DEFAULT_RANGE[l];
-                            setRangeMin(lo);
-                            setRangeMax(hi);
-                        }}
                         currentProduct={product}
                         onShowScenes={() => setShowScenes(true)}
                         onDownload={() =>
@@ -512,7 +513,33 @@ export default function InsarResultsPage() {
                                 }}
                             >
                                 <Icon name="mapPin" size={11} style={{ marginRight: 6, opacity: 0.6 }} />
-                                {layer} · {opacity}% · 지도 클릭 → 시계열 점 추가
+                                {/* 컨테이너는 pointerEvents:none(지도 클릭 통과) — select 만 auto 로 살린다. */}
+                                <select
+                                    value={layer}
+                                    onChange={(e) => changeLayer(e.target.value as Layer)}
+                                    aria-label="레이어 선택"
+                                    style={{
+                                        pointerEvents: 'auto',
+                                        background: 'var(--bg-3)',
+                                        border: '1px solid var(--border-default)',
+                                        borderRadius: 4,
+                                        color: 'var(--text-primary)',
+                                        fontFamily: 'var(--font-mono)',
+                                        fontSize: 11.5,
+                                        fontWeight: 600,
+                                        padding: '1px 4px',
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    {(Object.keys(LAYER_META) as Layer[]).map((k) => (
+                                        <option key={k} value={k}>
+                                            {k}
+                                        </option>
+                                    ))}
+                                </select>
+                                <span style={{ marginLeft: 6 }}>
+                                    · {opacity}% · 지도 클릭 → 시계열 점 추가
+                                </span>
                             </div>
                         </MapCanvas>
                     </div>
@@ -551,8 +578,6 @@ interface ResultsSidebarProps {
     onTypeFilter: (t: '전체' | InsarProduct['type']) => void;
     selected: string;
     onSelect: (id: string) => void;
-    layer: Layer;
-    onLayerChange: (l: Layer) => void;
     currentProduct: InsarProduct;
     onShowScenes: () => void;
     onDownload: () => void;
@@ -568,8 +593,6 @@ function ResultsSidebar({
     onTypeFilter,
     selected,
     onSelect,
-    layer,
-    onLayerChange,
     currentProduct,
     onShowScenes,
     onDownload,
@@ -642,54 +665,6 @@ function ResultsSidebar({
                 </div>
 
                 <QaSummarySection productId={currentProduct.id} />
-
-                <Section title="레이어">
-                    <div className="col gap-1">
-                        {(Object.entries(LAYER_META) as [Layer, { unit: string; label: string }][]).map(
-                            ([k, meta]) => {
-                                const on = layer === k;
-                                return (
-                                    <div
-                                        key={k}
-                                        onClick={() => onLayerChange(k)}
-                                        className="between"
-                                        style={{
-                                            padding: '7px 10px',
-                                            borderRadius: 5,
-                                            background: on ? 'var(--accent-soft)' : 'transparent',
-                                            border: on
-                                                ? '1px solid var(--accent-border)'
-                                                : '1px solid transparent',
-                                            cursor: 'pointer',
-                                        }}
-                                    >
-                                        <span className="row gap-2">
-                                            <span
-                                                style={{
-                                                    width: 7,
-                                                    height: 7,
-                                                    borderRadius: 50,
-                                                    background: on
-                                                        ? 'var(--accent)'
-                                                        : 'var(--text-tertiary)',
-                                                }}
-                                            />
-                                            <span
-                                                className="mono"
-                                                style={{ fontSize: 11.5, fontWeight: on ? 600 : 400 }}
-                                            >
-                                                {k}
-                                            </span>
-                                        </span>
-                                        <span className="faint" style={{ fontSize: 10.5 }}>
-                                            {meta.unit}
-                                        </span>
-                                    </div>
-                                );
-                            },
-                        )}
-                    </div>
-                </Section>
 
                 <Section title={`선택된 점 (${points.length}/8)`}>
                     {points.length === 0 ? (
