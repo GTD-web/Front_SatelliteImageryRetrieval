@@ -477,7 +477,8 @@ function SearchPageInner() {
         toast('AOI 해제됨');
     };
 
-    /** 사각형 그리기 모드 진입(검색은 하지 않음). 그리기 완료 시 handleDrawEnd 가 AOI 를 적용한다. */
+    /** 사각형 그리기 모드 진입(검색은 하지 않음). 지도 툴박스/AOI 팝오버에서 호출.
+     *  그리기 완료 시 handleDrawEnd 가 AOI 를 적용한다. 안내는 지도 상단 배너가 담당. */
     const startDrawAoi = () => {
         if (activeTool === 'bbox') {
             // 이미 그리는 중이면 토글로 취소.
@@ -488,7 +489,6 @@ function SearchPageInner() {
         setPendingSearch(false);
         setAoiOpen(false);
         setActiveTool('bbox');
-        toast('지도에서 드래그해 사각형 AOI를 그리세요 · ESC 취소');
     };
 
     const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -687,30 +687,21 @@ function SearchPageInner() {
                                     }}
                                 />
                             </button>
-                            <div className="row gap-2" style={{ marginTop: 8 }}>
-                                <button
-                                    type="button"
-                                    className={`btn btn--sm${activeTool === 'bbox' ? ' btn--primary' : ' btn--outline-accent'}`}
-                                    style={{ flex: 1 }}
-                                    onClick={startDrawAoi}
-                                    aria-pressed={activeTool === 'bbox'}
-                                >
-                                    <Icon name="square" size={13} />
-                                    {activeTool === 'bbox' ? ' 그리는 중… (ESC)' : ' AOI 그리기'}
-                                </button>
-                                {aoi ? (
+                            {aoi ? (
+                                <div className="row gap-2" style={{ marginTop: 8 }}>
                                     <button
                                         type="button"
                                         className="btn btn--ghost btn--sm"
+                                        style={{ flex: 1 }}
                                         onClick={clearAoi}
                                     >
-                                        해제
+                                        AOI 해제
                                     </button>
-                                ) : null}
-                            </div>
-                            {!aoi && activeTool !== 'bbox' ? (
+                                </div>
+                            ) : activeTool !== 'bbox' ? (
                                 <div className="faint" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
-                                    검색하려면 먼저 지도에 AOI를 그리거나 좌표를 입력하세요.
+                                    검색하려면 지도 좌측 상단의 <b>사각형</b> 도구로 AOI를 그리거나
+                                    좌표를 입력하세요.
                                 </div>
                             ) : null}
                         </div>
@@ -999,6 +990,8 @@ function SearchPageInner() {
                             footprints={hasSearched && !previewAoi ? footprints : []}
                             aoi={previewAoi ? aoiToRing(previewAoi) : aoi}
                             activeTool={activeTool}
+                            tools={['bbox']}
+                            onToolSelect={startDrawAoi}
                             onDrawEnd={handleDrawEnd}
                             onAoiChange={(coords) => {
                                 // 미리보기 중에는 사용자 편집을 무시 (preview 가 끝난 뒤 본 AOI 로 복귀하도록).
@@ -1193,7 +1186,8 @@ function SearchPageInner() {
                                     </>
                                 ) : null}
                             </div>
-                            {/* 검색/담기 컨트롤 — 결과 탭에서만 노출. 패널이 닫혀 있어도 항상 보이며, 클릭 시 자기 동작 + 패널 오픈. */}
+                            {/* 검색/담기 컨트롤 — 결과 탭에서만 노출. "선택한 N개 담기"는 패널이 닫혀
+                                있어도 보이지만, "전체 담기"는 패널이 열려 있을 때만 노출한다. */}
                             {resultsTab === 'list' ? (
                                 <div
                                     className="row gap-2"
@@ -1211,7 +1205,7 @@ function SearchPageInner() {
                                         >
                                             <Icon name="cart" size={12} /> 선택한 {checked.size}개 담기
                                         </button>
-                                    ) : (
+                                    ) : resultsOpen ? (
                                         <button
                                             type="button"
                                             className="btn btn--sm"
@@ -1222,7 +1216,7 @@ function SearchPageInner() {
                                         >
                                             <Icon name="cart" size={12} /> 전체 담기 ({filtered.length})
                                         </button>
-                                    )}
+                                    ) : null}
                                 </div>
                             ) : null}
                         </div>
