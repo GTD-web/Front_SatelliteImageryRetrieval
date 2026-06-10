@@ -16,79 +16,44 @@ type Role = 'user' | 'admin';
 
 interface NavItem {
     label: string;
-    href: string;
+    /** `${base}` 에 붙일 상대 경로. base 는 plan/current 환경에 따라 런타임에 결정된다. */
+    path: string;
     icon: IconName;
     match: (path: string) => boolean;
 }
 
-const base = '/plan/sar';
+/** 현재 경로 그룹(plan/current)에 맞는 nav 베이스 경로를 반환한다. */
+function navBase(pathname: string): string {
+    return pathname.startsWith('/current') ? '/current/sar' : '/plan/sar';
+}
 
 const USER_ITEMS: NavItem[] = [
-    { label: '검색', href: `${base}/user/search`, icon: 'search', match: (p) => p.includes('/user/search') },
-    {
-        label: '다운로드',
-        href: `${base}/user/downloads`,
-        icon: 'download',
-        match: (p) => p.includes('/user/downloads'),
-    },
-    {
-        label: '분석 요청',
-        href: `${base}/user/insar/request`,
-        icon: 'activity',
-        match: (p) => p.includes('/user/insar/request'),
-    },
-    {
-        label: '분석 결과',
-        href: `${base}/user/insar/results`,
-        icon: 'layers',
-        match: (p) => p.includes('/user/insar/results'),
-    },
-    {
-        label: 'AOI 관리',
-        href: `${base}/user/aois`,
-        icon: 'folder',
-        match: (p) => p.includes('/user/aois'),
-    },
+    { label: '검색', path: '/user/search', icon: 'search', match: (p) => p.includes('/user/search') },
+    { label: '다운로드', path: '/user/downloads', icon: 'download', match: (p) => p.includes('/user/downloads') },
+    { label: '분석 요청', path: '/user/insar/request', icon: 'activity', match: (p) => p.includes('/user/insar/request') },
+    { label: '분석 결과', path: '/user/insar/results', icon: 'layers', match: (p) => p.includes('/user/insar/results') },
+    { label: 'AOI 관리', path: '/user/aois', icon: 'folder', match: (p) => p.includes('/user/aois') },
 ];
 
 const ADMIN_ITEMS: NavItem[] = [
-    {
-        label: '대시보드',
-        href: `${base}/admin/dashboard`,
-        icon: 'chart',
-        match: (p) => p.includes('/admin/dashboard'),
-    },
-    { label: '검색', href: `${base}/admin/search`, icon: 'search', match: (p) => p.includes('/admin/search') },
-    { label: '사용자', href: `${base}/admin/users`, icon: 'users', match: (p) => p.includes('/admin/users') },
-    {
-        label: '크롤 AOI',
-        href: `${base}/admin/crawl-targets`,
-        icon: 'mapPin',
-        match: (p) => p.includes('/admin/crawl-targets'),
-    },
-    { label: 'Sync', href: `${base}/admin/sync-monitor`, icon: 'refresh', match: (p) => p.includes('/admin/sync-monitor') },
-    {
-        label: '분석 품질',
-        href: `${base}/admin/analysis-qa`,
-        icon: 'shield',
-        match: (p) => p.includes('/admin/analysis-qa'),
-    },
-    {
-        label: '실패한 다운로드',
-        href: `${base}/admin/failed-downloads`,
-        icon: 'download',
-        match: (p) => p.includes('/admin/failed-downloads'),
-    },
-    { label: '감사', href: `${base}/admin/audit-logs`, icon: 'clock', match: (p) => p.includes('/admin/audit-logs') },
+    { label: '대시보드', path: '/admin/dashboard', icon: 'chart', match: (p) => p.includes('/admin/dashboard') },
+    { label: '검색', path: '/admin/search', icon: 'search', match: (p) => p.includes('/admin/search') },
+    { label: '사용자', path: '/admin/users', icon: 'users', match: (p) => p.includes('/admin/users') },
+    { label: '크롤 AOI', path: '/admin/crawl-targets', icon: 'mapPin', match: (p) => p.includes('/admin/crawl-targets') },
+    { label: 'Sync', path: '/admin/sync-monitor', icon: 'refresh', match: (p) => p.includes('/admin/sync-monitor') },
+    { label: '분석 품질', path: '/admin/analysis-qa', icon: 'shield', match: (p) => p.includes('/admin/analysis-qa') },
+    { label: '실패한 다운로드', path: '/admin/failed-downloads', icon: 'download', match: (p) => p.includes('/admin/failed-downloads') },
+    { label: '감사', path: '/admin/audit-logs', icon: 'clock', match: (p) => p.includes('/admin/audit-logs') },
 ];
 
 export function SideNav() {
     const pathname = usePathname() ?? '';
     const { theme, toggleTheme } = useHifiPrefs();
 
+    const base = navBase(pathname);
     const role: Role = pathname.includes('/admin/') ? 'admin' : 'user';
     const items = role === 'admin' ? ADMIN_ITEMS : USER_ITEMS;
-    const homeHref = role === 'admin' ? `${base}/admin/dashboard` : `${base}/user/search`;
+    const homeHref = `${base}${role === 'admin' ? '/admin/dashboard' : '/user/search'}`;
 
     return (
         <aside className="sidenav">
@@ -98,8 +63,8 @@ export function SideNav() {
             <nav className="sidenav__nav">
                 {items.map((item) => (
                     <Link
-                        key={item.href}
-                        href={item.href}
+                        key={item.path}
+                        href={`${base}${item.path}`}
                         className={`sidenav__item${item.match(pathname) ? ' sidenav__item--active' : ''}`}
                         data-tooltip={item.label}
                         data-tooltip-pos="right"
@@ -122,14 +87,14 @@ export function SideNav() {
                 >
                     <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={16} />
                 </button>
-                <UserAvatarMenu role={role} />
+                <UserAvatarMenu role={role} base={base} />
             </div>
         </aside>
     );
 }
 
 /** 사용자 아바타 — 클릭 시 역할 전환 popover 를 연다. */
-function UserAvatarMenu({ role }: { role: Role }) {
+function UserAvatarMenu({ role, base }: { role: Role; base: string }) {
     const router = useRouter();
     const ref = useRef<HTMLButtonElement | null>(null);
     const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -179,7 +144,7 @@ function UserAvatarMenu({ role }: { role: Role }) {
     const switchTo = (next: Role) => {
         setOpen(false);
         if (next === role) return;
-        router.push(next === 'admin' ? `${base}/admin/dashboard` : `${base}/user/search`);
+        router.push(`${base}${next === 'admin' ? '/admin/dashboard' : '/user/search'}`);
     };
 
     const openChangePassword = () => {
