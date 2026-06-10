@@ -123,6 +123,22 @@ interface RequestForm {
     referenceMode: 'auto' | 'manual';
     referenceLon: string;
     referenceLat: string;
+    /** 기간 프리셋 칩 활성 표시용 — 날짜를 직접 바꾸면 '' 로 해제. */
+    datePreset: DatePreset | '';
+}
+
+type DatePreset = '1주' | '1개월' | '3개월' | '1년';
+
+/** 오늘 기준 preset 범위를 계산해 [start, end]를 반환. (검색 페이지와 동일 동작) */
+function presetRange(preset: DatePreset): [Date, Date] {
+    const end = new Date();
+    end.setHours(0, 0, 0, 0);
+    const start = new Date(end);
+    if (preset === '1주') start.setDate(end.getDate() - 7);
+    else if (preset === '1개월') start.setMonth(end.getMonth() - 1);
+    else if (preset === '3개월') start.setMonth(end.getMonth() - 3);
+    else start.setFullYear(end.getFullYear() - 1);
+    return [start, end];
 }
 
 function buildDefaultRequest(): RequestForm {
@@ -146,6 +162,7 @@ function buildDefaultRequest(): RequestForm {
         referenceMode: 'auto',
         referenceLon: '',
         referenceLat: '',
+        datePreset: '',
     };
 }
 
@@ -486,6 +503,35 @@ function pickReferenceSceneId(scenes: AvailableScene[]): string | null {
     if (scenes.length === 0) return null;
     const sorted = [...scenes].sort((a, b) => a.perpBaseline - b.perpBaseline);
     return sorted[Math.floor(sorted.length / 2)]!.id;
+}
+
+/** 검색 페이지와 동일한 기간 프리셋 칩 — 클릭 시 오늘 기준 범위를 적용한다. */
+function DatePresetChips({
+    form,
+    onChangeField,
+}: {
+    form: RequestForm;
+    onChangeField: <K extends keyof RequestForm>(key: K, value: RequestForm[K]) => void;
+}) {
+    return (
+        <div className="row gap-1" style={{ marginTop: 6, flexWrap: 'wrap' }}>
+            {(['1주', '1개월', '3개월', '1년'] as const).map((t) => (
+                <span
+                    key={t}
+                    className={`chip${form.datePreset === t ? ' chip--active' : ''}`}
+                    style={{ height: 22, fontSize: 11 }}
+                    onClick={() => {
+                        const [s, e] = presetRange(t);
+                        onChangeField('startDate', s);
+                        onChangeField('endDate', e);
+                        onChangeField('datePreset', t);
+                    }}
+                >
+                    {t}
+                </span>
+            ))}
+        </div>
+    );
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1078,7 +1124,7 @@ function InsarRequestPageInner() {
                             rangeStart={request.startDate}
                             rangeEnd={request.endDate}
                             onRangeChange={(s, e) =>
-                                setRequest((f) => ({ ...f, startDate: s, endDate: e }))
+                                setRequest((f) => ({ ...f, startDate: s, endDate: e, datePreset: '' }))
                             }
                         />
                     </div>
@@ -1650,8 +1696,10 @@ function AutoRequestPanel({
                     onChange={(s, e) => {
                         onChangeField('startDate', s);
                         onChangeField('endDate', e);
+                        onChangeField('datePreset', '');
                     }}
                 />
+                <DatePresetChips form={form} onChangeField={onChangeField} />
             </Section>
 
             <Section title="AOI 사전 점검" hint="무거운 처리 전에 coherence·토지피복·경사를 진단합니다.">
@@ -2071,8 +2119,10 @@ function RequestSidebar({
                                 onChange={(s, e) => {
                                     onChangeField('startDate', s);
                                     onChangeField('endDate', e);
+                                    onChangeField('datePreset', '');
                                 }}
                             />
+                            <DatePresetChips form={form} onChangeField={onChangeField} />
                         </div>
                     </div>
                 </div>
