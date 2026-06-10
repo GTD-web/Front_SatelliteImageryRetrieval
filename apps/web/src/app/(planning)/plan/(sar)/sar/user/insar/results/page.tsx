@@ -215,6 +215,42 @@ function productExtent(productId: string): [number, number, number, number] {
     return [lon - dLon, lat - dLat, lon + dLon, lat + dLat];
 }
 
+/** 핵심 지표(변위 통계) — 산출물별 결정적 mock. 실제로는 산출물 메타(래스터 통계)로 대체. */
+interface ProductStats {
+    /** 기간 내 LOS 최대 융기 (mm, 양수=융기) */
+    maxUpMm: number;
+    /** 기간 내 LOS 최대 침하 (mm, 음수) */
+    maxDownMm: number;
+    /** 평균 변위 속도 (mm/yr) — SBAS/PSInSAR 스택 전용 */
+    avgRateMmYr: number;
+    /** 평균 coherence — DInSAR 표시용 */
+    meanCoherence: number;
+    /** 유효 픽셀 비율 (%) — DInSAR 표시용 */
+    validPixelPct: number;
+    areaKm2: number;
+    /** PS/측정점 수 — 스택 전용 */
+    points: number;
+}
+
+function statsForProduct(p: InsarProduct): ProductStats {
+    let h = 0;
+    for (let i = 0; i < p.id.length; i++) h = (h * 31 + p.id.charCodeAt(i)) >>> 0;
+    const rnd = (k: number, lo: number, hi: number) => {
+        const x = Math.sin((h % 997) + k * 131.71) * 10000;
+        return lo + (x - Math.floor(x)) * (hi - lo);
+    };
+    const stack = p.type !== 'DInSAR';
+    return {
+        maxUpMm: rnd(1, -1, stack ? 8 : 4),
+        maxDownMm: -rnd(2, stack ? 120 : 30, stack ? 750 : 90),
+        avgRateMmYr: -rnd(3, 6, 110),
+        meanCoherence: rnd(4, 0.45, 0.9),
+        validPixelPct: rnd(5, 62, 96),
+        areaKm2: rnd(6, 9, 55),
+        points: Math.round(p.type === 'PSInSAR' ? rnd(7, 8000, 24000) : rnd(7, 1500, 7000)),
+    };
+}
+
 type Layer = 'mean_velocity' | 'coherence' | 'cumulative_disp' | 'wrapped_phase';
 
 const LAYER_META: Record<Layer, { unit: string; label: string }> = {
@@ -757,6 +793,8 @@ function ResultsSidebar({
                     ) : null}
                 </div>
 
+                <ProductStatsSection product={currentProduct} />
+
                 <QaSummarySection productId={currentProduct.id} />
 
                 <Section title={`선택된 점 (${points.length}/8)`}>
@@ -963,6 +1001,68 @@ function TimeseriesChart({ points }: { points: Point[] }) {
                 ))}
             </LineChart>
         </ResponsiveContainer>
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 핵심 지표 — 선택 산출물의 변위 통계를 큰 숫자로 (Synspective LDM 패턴)
+// ────────────────────────────────────────────────────────────────────────────
+
+/** 핵심 지표 셀 — 작은 라벨 + 큰 숫자. 시인성을 위해 숫자를 키운다. */
+function StatCell({ label, unit, value }: { label: string; unit?: string; value: string }) {
+    return (
+        <div className="col" style={{ gap: 3, minWidth: 0 }}>
+            <span className="faint" style={{ fontSize: 10.5, whiteSpace: 'nowrap' }}>
+                {label}
+                {unit ? ` (${unit})` : ''}
+            </span>
+            <span
+                className="mono tabular"
+                style={{ fontSize: 20, fontWeight: 600, lineHeight: 1.15, letterSpacing: '-0.02em' }}
+            >
+                {value}
+            </span>
+        </div>
+    );
+}
+
+/** 선택 산출물의 핵심 지표 섹션 — 2열 그리드의 빅넘버 스탯. */
+function ProductStatsSection({ product }: { product: InsarProduct }) {
+    const s = statsForProduct(product);
+    const stack = product.type !== 'DInSAR';
+    /** mm 값 — 양수는 + 를 붙여 융기/침하 방향이 한눈에 보이게. */
+    const fmtMm = (v: number) => (v > 0 ? `+${v.toFixed(2)}` : v.toFixed(2));
+    return (
+        <Section
+            title="핵심 지표"
+            hint={product.name}
+            info={'변위는 LOS(위성 시선 방향) 기준입니다.\n음수 = 침하(위성에서 멀어짐), 양수 = 융기.'}
+        >
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 12px' }}>
+                <StatCell label="최대 융기" unit="mm" value={fmtMm(s.maxUpMm)} />
+                <StatCell label="최대 침하" unit="mm" value={fmtMm(s.maxDownMm)} />
+                {stack ? (
+                    <>
+                        <StatCell
+                            label="평균 변위 속도"
+                            unit="mm/yr"
+                            value={fmtMm(s.avgRateMmYr)}
+                        />
+                        <StatCell
+                            label={product.type === 'PSInSAR' ? 'PS 점 수' : '측정점 수'}
+                            value={s.points.toLocaleString()}
+                        />
+                    </>
+                ) : (
+                    <>
+                        <StatCell label="평균 coherence" value={s.meanCoherence.toFixed(2)} />
+                        <StatCell label="유효 픽셀" unit="%" value={s.validPixelPct.toFixed(1)} />
+                    </>
+                )}
+                <StatCell label="면적" unit="km²" value={s.areaKm2.toFixed(2)} />
+                <StatCell label="Scene 수" value={String(product.scenes)} />
+            </div>
+        </Section>
     );
 }
 
