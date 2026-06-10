@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     CartesianGrid,
     Legend,
@@ -554,9 +554,6 @@ export default function InsarResultsPage() {
                         onDownload={() =>
                             toast(`${product.name} 다운로드 시작`, { tone: 'success' })
                         }
-                        points={points}
-                        onClearPoints={clearPoints}
-                        onRemovePoint={removePoint}
                     />
                 </aside>
 
@@ -626,7 +623,6 @@ export default function InsarResultsPage() {
 
                     <div
                         style={{
-                            height: 260,
                             flexShrink: 0,
                             borderTop: '1px solid var(--border-subtle)',
                             background: 'var(--bg-2)',
@@ -636,7 +632,12 @@ export default function InsarResultsPage() {
                             zIndex: 9,
                         }}
                     >
-                        <ResultsBottomPanel points={points} onExport={exportCsv} />
+                        <ResultsBottomPanel
+                            points={points}
+                            onExport={exportCsv}
+                            onClearPoints={clearPoints}
+                            onRemovePoint={removePoint}
+                        />
                     </div>
                 </div>
             </div>
@@ -661,9 +662,6 @@ interface ResultsSidebarProps {
     currentProduct: InsarProduct;
     onShowScenes: () => void;
     onDownload: () => void;
-    points: Point[];
-    onClearPoints: () => void;
-    onRemovePoint: (id: string) => void;
 }
 
 function ResultsSidebar({
@@ -676,9 +674,6 @@ function ResultsSidebar({
     currentProduct,
     onShowScenes,
     onDownload,
-    points,
-    onClearPoints,
-    onRemovePoint,
 }: ResultsSidebarProps) {
     return (
         <>
@@ -758,61 +753,6 @@ function ResultsSidebar({
                 <ProductStatsSection product={currentProduct} />
 
                 <QaSummarySection productId={currentProduct.id} />
-
-                <Section title={`선택된 점 (${points.length}/8)`}>
-                    {points.length === 0 ? (
-                        <div className="faint" style={{ fontSize: 11.5 }}>
-                            지도 클릭하여 시계열 점 추가
-                        </div>
-                    ) : (
-                        <div className="col gap-2">
-                            {points.map((p) => (
-                                <div
-                                    key={p.id}
-                                    className="row gap-2"
-                                    style={{ padding: '5px 7px', borderRadius: 4, background: 'var(--bg-3)' }}
-                                >
-                                    <span
-                                        style={{
-                                            width: 13,
-                                            height: 13,
-                                            borderRadius: 50,
-                                            background: p.color,
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            color: '#fff',
-                                            fontSize: 10,
-                                            fontWeight: 700,
-                                        }}
-                                    >
-                                        {p.id}
-                                    </span>
-                                    <span
-                                        className="mono tabular faint"
-                                        style={{ fontSize: 11, flex: 1 }}
-                                    >
-                                        {p.lon.toFixed(3)}E, {p.lat.toFixed(3)}N
-                                    </span>
-                                    <Icon
-                                        name="x"
-                                        size={11}
-                                        style={{ color: 'var(--text-tertiary)', cursor: 'pointer' }}
-                                        onClick={() => onRemovePoint(p.id)}
-                                    />
-                                </div>
-                            ))}
-                            <button
-                                type="button"
-                                className="btn btn--ghost btn--sm"
-                                style={{ alignSelf: 'flex-start' }}
-                                onClick={onClearPoints}
-                            >
-                                전체 해제
-                            </button>
-                        </div>
-                    )}
-                </Section>
             </div>
 
             <div
@@ -853,14 +793,52 @@ function ResultsSidebar({
 // 결과 — 하단 시계열 패널
 // ────────────────────────────────────────────────────────────────────────────
 
-function ResultsBottomPanel({ points, onExport }: { points: Point[]; onExport: () => void }) {
+function ResultsBottomPanel({
+    points,
+    onExport,
+    onClearPoints,
+    onRemovePoint,
+}: {
+    points: Point[];
+    onExport: () => void;
+    onClearPoints: () => void;
+    onRemovePoint: (id: string) => void;
+}) {
+    const [open, setOpen] = useState(true);
+    // 점이 추가되면 자동으로 펼친다 — 지도를 클릭한 의도가 시계열 확인이므로.
+    const prevCountRef = useRef(points.length);
+    useEffect(() => {
+        if (points.length > prevCountRef.current) setOpen(true);
+        prevCountRef.current = points.length;
+    }, [points.length]);
+
     return (
         <>
             <div
-                className="between"
-                style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}
+                className="results-header between"
+                role="button"
+                aria-expanded={open}
+                aria-label={open ? 'LOS 변위 시계열 접기' : 'LOS 변위 시계열 펼치기'}
+                tabIndex={0}
+                data-open={open}
+                onClick={() => setOpen((v) => !v)}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setOpen((v) => !v);
+                    }
+                }}
             >
-                <div className="row gap-3">
+                <div className="row gap-3" style={{ alignItems: 'center', minWidth: 0 }}>
+                    <Icon
+                        name="chevronDown"
+                        size={13}
+                        style={{
+                            transition: 'transform 200ms ease',
+                            transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
+                            opacity: 0.75,
+                        }}
+                    />
                     <div className="row gap-2">
                         <Icon name="chart" size={14} />
                         <span style={{ fontWeight: 600 }}>LOS 변위 시계열</span>
@@ -881,18 +859,119 @@ function ResultsBottomPanel({ points, onExport }: { points: Point[]; onExport: (
                         ))}
                     </div>
                 </div>
-                <button type="button" className="btn btn--ghost btn--sm" onClick={onExport}>
-                    <Icon name="download" size={11} /> CSV 내보내기
-                </button>
+                {open ? (
+                    <button
+                        type="button"
+                        className="btn btn--ghost btn--sm"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onExport();
+                        }}
+                    >
+                        <Icon name="download" size={11} /> CSV 내보내기
+                    </button>
+                ) : null}
             </div>
-            <div style={{ padding: '12px 16px', flex: 1, minHeight: 0 }}>
-                {points.length === 0 ? (
-                    <div className="empty" style={{ padding: 20, fontSize: 12 }}>
-                        지도에서 점을 찍으면 시계열이 여기 표시됩니다
+            <div
+                style={{
+                    display: 'grid',
+                    gridTemplateRows: open ? '1fr' : '0fr',
+                    transition: 'grid-template-rows 260ms ease',
+                }}
+                aria-hidden={!open}
+            >
+                <div style={{ minHeight: 0, overflow: 'hidden' }}>
+                    <div style={{ height: 220, display: 'flex', minHeight: 0 }}>
+                        {/* 선택된 점 — 시계열과 한 패널에서 관리 (점 ↔ 라인 매핑이 한눈에). */}
+                        <div
+                            className="col"
+                            style={{
+                                width: 216,
+                                flexShrink: 0,
+                                borderRight: '1px solid var(--border-subtle)',
+                                padding: '10px 12px',
+                                gap: 8,
+                                overflow: 'auto',
+                            }}
+                        >
+                            <div className="between" style={{ alignItems: 'center' }}>
+                                <span className="faint" style={{ fontSize: 11 }}>
+                                    선택된 점 ({points.length}/8)
+                                </span>
+                                {points.length > 0 ? (
+                                    <button
+                                        type="button"
+                                        className="btn btn--ghost btn--sm"
+                                        onClick={onClearPoints}
+                                    >
+                                        전체 해제
+                                    </button>
+                                ) : null}
+                            </div>
+                            {points.length === 0 ? (
+                                <div className="faint" style={{ fontSize: 11.5, lineHeight: 1.5 }}>
+                                    지도를 클릭해 시계열 점을 추가하세요 (최대 8개)
+                                </div>
+                            ) : (
+                                <div className="col gap-2">
+                                    {points.map((p) => (
+                                        <div
+                                            key={p.id}
+                                            className="row gap-2"
+                                            style={{
+                                                padding: '5px 7px',
+                                                borderRadius: 4,
+                                                background: 'var(--bg-3)',
+                                            }}
+                                        >
+                                            <span
+                                                style={{
+                                                    width: 13,
+                                                    height: 13,
+                                                    borderRadius: 50,
+                                                    background: p.color,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    color: '#fff',
+                                                    fontSize: 10,
+                                                    fontWeight: 700,
+                                                    flexShrink: 0,
+                                                }}
+                                            >
+                                                {p.id}
+                                            </span>
+                                            <span
+                                                className="mono tabular faint"
+                                                style={{ fontSize: 11, flex: 1 }}
+                                            >
+                                                {p.lon.toFixed(3)}E, {p.lat.toFixed(3)}N
+                                            </span>
+                                            <Icon
+                                                name="x"
+                                                size={11}
+                                                style={{
+                                                    color: 'var(--text-tertiary)',
+                                                    cursor: 'pointer',
+                                                }}
+                                                onClick={() => onRemovePoint(p.id)}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        <div style={{ padding: '12px 16px', flex: 1, minWidth: 0 }}>
+                            {points.length === 0 ? (
+                                <div className="empty" style={{ padding: 20, fontSize: 12 }}>
+                                    지도에서 점을 찍으면 시계열이 여기 표시됩니다
+                                </div>
+                            ) : (
+                                <TimeseriesChart points={points} />
+                            )}
+                        </div>
                     </div>
-                ) : (
-                    <TimeseriesChart points={points} />
-                )}
+                </div>
             </div>
         </>
     );
