@@ -407,6 +407,17 @@ export default function InsarResultsPage() {
     const product = useMemo(() => PRODUCTS.find((p) => p.id === selected) ?? PRODUCTS[0]!, [selected]);
     const filteredProducts = PRODUCTS.filter((p) => typeFilter === '전체' || p.type === typeFilter);
 
+    // 타입 필터로 현재 선택이 목록에서 빠지면 첫 항목으로 자동 전환 — select 가 빈 값이 되지 않도록.
+    useEffect(() => {
+        if (filteredProducts.length === 0) return;
+        if (!filteredProducts.some((p) => p.id === selected)) {
+            setSelected(filteredProducts[0]!.id);
+            setPoints([]);
+        }
+        // filteredProducts/selected 는 의도적으로 제외 — 필터 변경 시점에만 보정.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [typeFilter]);
+
     // 레이어 전환 — 범위 입력을 해당 단위 기본값으로 재설정한다(지도 select·범례 공용).
     const changeLayer = (l: Layer) => {
         setLayer(l);
@@ -655,9 +666,6 @@ interface ResultsSidebarProps {
     onRemovePoint: (id: string) => void;
 }
 
-/** 사이드바 목록 한 페이지에 보여줄 산출물 수 — 넘치면 페이지네이션. */
-const PRODUCTS_PAGE_SIZE = 5;
-
 function ResultsSidebar({
     products,
     allCount,
@@ -672,18 +680,6 @@ function ResultsSidebar({
     onClearPoints,
     onRemovePoint,
 }: ResultsSidebarProps) {
-    const [page, setPage] = useState(1);
-    // 타입 필터가 바뀌면 1페이지로 — 필터 결과가 줄어 현재 페이지가 비는 것 방지.
-    useEffect(() => {
-        setPage(1);
-    }, [typeFilter]);
-    const totalPages = Math.max(1, Math.ceil(products.length / PRODUCTS_PAGE_SIZE));
-    const safePage = Math.min(page, totalPages);
-    const paged = products.slice(
-        (safePage - 1) * PRODUCTS_PAGE_SIZE,
-        safePage * PRODUCTS_PAGE_SIZE,
-    );
-
     return (
         <>
             <div className="toolbar" style={{ borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
@@ -703,95 +699,61 @@ function ResultsSidebar({
                 </div>
             </div>
             <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
-                <div style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                <Section title="산출물 선택">
                     {products.length === 0 ? (
-                        <div className="empty" style={{ padding: 32, fontSize: 12 }}>
+                        <div className="empty" style={{ padding: 18, fontSize: 12 }}>
                             해당 타입의 산출물이 없습니다
                         </div>
                     ) : (
-                        paged.map((p) => (
-                            <div
-                                key={p.id}
-                                onClick={() => onSelect(p.id)}
-                                style={{
-                                    padding: '12px 14px',
-                                    borderBottom: '1px solid var(--border-subtle)',
-                                    background: selected === p.id ? 'var(--accent-soft)' : undefined,
-                                    borderLeft:
-                                        selected === p.id
-                                            ? '3px solid var(--accent)'
-                                            : '3px solid transparent',
-                                    cursor: 'pointer',
-                                }}
-                            >
-                                <div className="between">
-                                    <div style={{ fontWeight: 600, fontSize: 12.5 }}>{p.name}</div>
-                                    <span className={`badge ${typeBadge(p.type)}`} style={{ fontSize: 10 }}>
-                                        {p.type}
-                                    </span>
-                                </div>
-                                <div className="mono tabular faint" style={{ fontSize: 11, marginTop: 3 }}>
-                                    {p.range}
-                                </div>
-                                <div className="row gap-2" style={{ marginTop: 5, fontSize: 11 }}>
-                                    <span className="faint">{p.mission}</span>
-                                    <span className="faint">·</span>
-                                    <span className="mono tabular">{p.scenes}</span>
-                                    <span className="faint">scenes</span>
-                                    <span className="faint" style={{ marginLeft: 'auto' }}>
-                                        {p.size}
-                                    </span>
-                                </div>
-                                <ProductConfidenceRow productId={p.id} />
-                            </div>
-                        ))
-                    )}
-                    {totalPages > 1 ? (
-                        <div
-                            className="row"
-                            style={{
-                                padding: '6px 10px',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                fontSize: 11,
-                                color: 'var(--text-tertiary)',
-                            }}
+                        <select
+                            className="input"
+                            aria-label="산출물 선택"
+                            style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 12.5 }}
+                            value={selected}
+                            onChange={(e) => onSelect(e.target.value)}
                         >
-                            <span className="tabular">
-                                {(safePage - 1) * PRODUCTS_PAGE_SIZE + 1}–
-                                {Math.min(safePage * PRODUCTS_PAGE_SIZE, products.length)} /{' '}
-                                {products.length}
+                            {products.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                    {p.name} · {p.type}
+                                </option>
+                            ))}
+                        </select>
+                    )}
+                    {/* 선택 산출물 요약 — 목록 행에 있던 메타를 select 아래로 응축. */}
+                    <div
+                        style={{
+                            marginTop: 8,
+                            padding: '8px 10px',
+                            background: 'var(--bg-3)',
+                            borderRadius: 6,
+                        }}
+                    >
+                        <div className="between" style={{ alignItems: 'center' }}>
+                            <span
+                                className={`badge ${typeBadge(currentProduct.type)}`}
+                                style={{ fontSize: 10 }}
+                            >
+                                {currentProduct.type}
                             </span>
-                            <div className="row gap-1" style={{ alignItems: 'center' }}>
-                                <button
-                                    type="button"
-                                    className="btn btn--ghost btn--icon btn--sm"
-                                    aria-label="이전 페이지"
-                                    disabled={safePage <= 1}
-                                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                                >
-                                    <Icon
-                                        name="chevronRight"
-                                        size={13}
-                                        style={{ transform: 'scaleX(-1)' }}
-                                    />
-                                </button>
-                                <span className="mono tabular" style={{ fontSize: 11 }}>
-                                    {safePage} / {totalPages}
-                                </span>
-                                <button
-                                    type="button"
-                                    className="btn btn--ghost btn--icon btn--sm"
-                                    aria-label="다음 페이지"
-                                    disabled={safePage >= totalPages}
-                                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                                >
-                                    <Icon name="chevronRight" size={13} />
-                                </button>
-                            </div>
+                            <span className="faint mono tabular" style={{ fontSize: 10.5 }}>
+                                {currentProduct.size}
+                            </span>
                         </div>
-                    ) : null}
-                </div>
+                        <div className="mono tabular faint" style={{ fontSize: 11, marginTop: 5 }}>
+                            {currentProduct.range}
+                        </div>
+                        <div className="row gap-2" style={{ marginTop: 4, fontSize: 11 }}>
+                            <span className="faint">{currentProduct.mission}</span>
+                            <span className="faint">·</span>
+                            <span className="mono tabular">{currentProduct.scenes}</span>
+                            <span className="faint">scenes</span>
+                            <span className="faint" style={{ marginLeft: 'auto' }}>
+                                {currentProduct.owner}
+                            </span>
+                        </div>
+                        <ProductConfidenceRow productId={currentProduct.id} />
+                    </div>
+                </Section>
 
                 <ProductStatsSection product={currentProduct} />
 
@@ -1035,7 +997,6 @@ function ProductStatsSection({ product }: { product: InsarProduct }) {
     return (
         <Section
             title="핵심 지표"
-            hint={product.name}
             info={'변위는 LOS(위성 시선 방향) 기준입니다.\n음수 = 침하(위성에서 멀어짐), 양수 = 융기.'}
         >
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 12px' }}>
