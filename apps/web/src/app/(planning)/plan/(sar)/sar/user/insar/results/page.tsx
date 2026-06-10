@@ -19,6 +19,7 @@ import {
     MapCanvas,
     Modal,
     Quicklook,
+    SearchSelect,
     useToast,
     type MapPoint,
     type MapRasterOverlay,
@@ -700,19 +701,18 @@ function ResultsSidebar({
                             해당 타입의 산출물이 없습니다
                         </div>
                     ) : (
-                        <select
-                            className="input"
-                            aria-label="산출물 선택"
-                            style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 12.5 }}
+                        <SearchSelect
+                            ariaLabel="산출물 선택"
                             value={selected}
-                            onChange={(e) => onSelect(e.target.value)}
-                        >
-                            {products.map((p) => (
-                                <option key={p.id} value={p.id}>
-                                    {p.name} · {p.type}
-                                </option>
-                            ))}
-                        </select>
+                            onChange={onSelect}
+                            searchPlaceholder="산출물 이름·타입 검색…"
+                            options={products.map((p) => ({
+                                value: p.id,
+                                label: p.name,
+                                sub: `${p.type} · ${p.range}`,
+                                keywords: `${p.mission} ${p.owner}`,
+                            }))}
+                        />
                     )}
                     {/* 선택 산출물 요약 — 목록 행에 있던 메타를 select 아래로 응축. */}
                     <div
