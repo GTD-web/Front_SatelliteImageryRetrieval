@@ -290,6 +290,8 @@ export function MapCanvas({
     const drawInteractionRef = useRef<Draw | null>(null);
     const modifyInteractionRef = useRef<Modify | null>(null);
     const translateInteractionRef = useRef<Translate | null>(null);
+    /** bbox/polygon 그리기 도구 활성 여부 — 활성 중엔 AOI Modify/Translate 를 끈다. */
+    const drawEngagedRef = useRef(false);
     // Latest callbacks in refs so event handlers don't need to rebind.
     const onDrawEndRef = useRef(onDrawEnd);
     const onMapClickRef = useRef(onMapClick);
@@ -586,11 +588,14 @@ export function MapCanvas({
     }, [basemap]);
 
     // AOI 편집 인터랙션 (Modify + Translate). 콜백이 있을 때만 부착.
+    // dep 는 boolean — 콜백 identity 가 렌더마다 바뀌어도 재등록하지 않아야
+    // 인터랙션 순서가 Draw(나중 등록 → 먼저 처리) 뒤로 밀리지 않는다.
+    const aoiEditable = Boolean(onAoiChange);
     useEffect(() => {
         const map = mapRef.current;
         const aoiSource = aoiSourceRef.current;
         if (!map || !aoiSource) return;
-        if (!onAoiChange) return;
+        if (!aoiEditable) return;
 
         const readRing = (feature: Feature): Array<[number, number]> | null => {
             const geom = feature.getGeometry();
@@ -774,6 +779,9 @@ export function MapCanvas({
         // Translate 로 흘러가도록 translate → modify 순으로 등록.
         map.addInteraction(translate);
         map.addInteraction(modify);
+        // 그리기 도구가 이미 켜져 있으면 비활성 상태로 시작 — 새 도형 드로잉을 가로채지 않도록.
+        modify.setActive(!drawEngagedRef.current);
+        translate.setActive(!drawEngagedRef.current);
         modifyInteractionRef.current = modify;
         translateInteractionRef.current = translate;
 
@@ -784,7 +792,7 @@ export function MapCanvas({
             if (translateInteractionRef.current === translate)
                 translateInteractionRef.current = null;
         };
-    }, [onAoiChange]);
+    }, [aoiEditable]);
 
     // Swap draw interaction when activeTool changes
     useEffect(() => {
@@ -796,6 +804,13 @@ export function MapCanvas({
             map.removeInteraction(drawInteractionRef.current);
             drawInteractionRef.current = null;
         }
+        // 그리기 도구가 켜져 있는 동안 AOI Modify/Translate 를 끈다 — 켜둔 채 두면
+        // 기존 AOI 내부에서 드래그를 시작할 때 Translate 가 pointerdown 을 가로채
+        // 새 도형이 그려지는 대신 기존 AOI 가 이동해 버린다.
+        const engaged = activeTool !== undefined && activeTool !== 'upload';
+        drawEngagedRef.current = engaged;
+        modifyInteractionRef.current?.setActive(!engaged);
+        translateInteractionRef.current?.setActive(!engaged);
         if (!activeTool || activeTool === 'upload') return;
 
         const type = activeTool === 'bbox' ? 'Circle' : 'Polygon';

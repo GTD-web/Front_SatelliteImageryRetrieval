@@ -101,6 +101,36 @@ const PRODUCTS: InsarProduct[] = [
         scenes: 28,
         owner: '시스템',
     },
+    {
+        id: 'daegu-ps',
+        name: 'Daegu 도심 PSInSAR',
+        type: 'PSInSAR',
+        range: '2024-01 ~ 2026-05',
+        mission: 'S1A·S1C',
+        size: '96 MB',
+        scenes: 54,
+        owner: '김연구원',
+    },
+    {
+        id: 'andong-sbas',
+        name: 'Andong 댐 주변 SBAS',
+        type: 'SBAS',
+        range: '2024-09 ~ 2026-04',
+        mission: 'S1A',
+        size: '6.1 GB',
+        scenes: 24,
+        owner: '박지수',
+    },
+    {
+        id: 'mokpo-q1',
+        name: 'Mokpo 매립지 2026Q1',
+        type: 'DInSAR',
+        range: '2026-01-04 ~ 2026-03-29',
+        mission: 'S1C',
+        size: '487 MB',
+        scenes: 2,
+        owner: '시스템',
+    },
 ];
 
 const POINT_COLORS = ['#dc2626', '#2563eb', '#10b981', '#f59e0b', '#a855f7', '#06b6d4', '#f472b6', '#84cc16'];
@@ -172,6 +202,9 @@ const PRODUCT_CENTERS: Record<string, [number, number]> = {
     gimhae: [128.88, 35.24],
     'busan-ps': [129.08, 35.18],
     ulleung: [130.9, 37.49],
+    'daegu-ps': [128.6, 35.87],
+    'andong-sbas': [128.73, 36.57],
+    'mokpo-q1': [126.39, 34.81],
 };
 
 /** 산출물 미리보기 raster 가 깔리는 lon/lat 사각형. 중심 ± 약 25/18km 패치. */
@@ -586,6 +619,9 @@ interface ResultsSidebarProps {
     onRemovePoint: (id: string) => void;
 }
 
+/** 사이드바 목록 한 페이지에 보여줄 산출물 수 — 넘치면 페이지네이션. */
+const PRODUCTS_PAGE_SIZE = 5;
+
 function ResultsSidebar({
     products,
     allCount,
@@ -600,6 +636,18 @@ function ResultsSidebar({
     onClearPoints,
     onRemovePoint,
 }: ResultsSidebarProps) {
+    const [page, setPage] = useState(1);
+    // 타입 필터가 바뀌면 1페이지로 — 필터 결과가 줄어 현재 페이지가 비는 것 방지.
+    useEffect(() => {
+        setPage(1);
+    }, [typeFilter]);
+    const totalPages = Math.max(1, Math.ceil(products.length / PRODUCTS_PAGE_SIZE));
+    const safePage = Math.min(page, totalPages);
+    const paged = products.slice(
+        (safePage - 1) * PRODUCTS_PAGE_SIZE,
+        safePage * PRODUCTS_PAGE_SIZE,
+    );
+
     return (
         <>
             <div className="toolbar" style={{ borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
@@ -625,7 +673,7 @@ function ResultsSidebar({
                             해당 타입의 산출물이 없습니다
                         </div>
                     ) : (
-                        products.map((p) => (
+                        paged.map((p) => (
                             <div
                                 key={p.id}
                                 onClick={() => onSelect(p.id)}
@@ -662,6 +710,51 @@ function ResultsSidebar({
                             </div>
                         ))
                     )}
+                    {totalPages > 1 ? (
+                        <div
+                            className="row"
+                            style={{
+                                padding: '6px 10px',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                fontSize: 11,
+                                color: 'var(--text-tertiary)',
+                            }}
+                        >
+                            <span className="tabular">
+                                {(safePage - 1) * PRODUCTS_PAGE_SIZE + 1}–
+                                {Math.min(safePage * PRODUCTS_PAGE_SIZE, products.length)} /{' '}
+                                {products.length}
+                            </span>
+                            <div className="row gap-1" style={{ alignItems: 'center' }}>
+                                <button
+                                    type="button"
+                                    className="btn btn--ghost btn--icon btn--sm"
+                                    aria-label="이전 페이지"
+                                    disabled={safePage <= 1}
+                                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                                >
+                                    <Icon
+                                        name="chevronRight"
+                                        size={13}
+                                        style={{ transform: 'scaleX(-1)' }}
+                                    />
+                                </button>
+                                <span className="mono tabular" style={{ fontSize: 11 }}>
+                                    {safePage} / {totalPages}
+                                </span>
+                                <button
+                                    type="button"
+                                    className="btn btn--ghost btn--icon btn--sm"
+                                    aria-label="다음 페이지"
+                                    disabled={safePage >= totalPages}
+                                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                                >
+                                    <Icon name="chevronRight" size={13} />
+                                </button>
+                            </div>
+                        </div>
+                    ) : null}
                 </div>
 
                 <QaSummarySection productId={currentProduct.id} />

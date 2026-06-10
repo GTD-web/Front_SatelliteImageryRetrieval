@@ -1696,18 +1696,18 @@
     right: 16px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    align-items: flex-end; /* 각 토스트가 내용 폭만큼만 차지하고 우측 정렬 */
+    gap: 10px;
     z-index: 1100;
-    width: 420px;
-    max-width: calc(100vw - 32px);
+    max-width: min(360px, calc(100vw - 32px));
 }
 .toast {
     position: relative;
     display: flex;
     align-items: flex-start;
     gap: 10px;
-    width: 100%;
-    padding: 12px 32px 12px 14px; /* 더 컴팩트하게 — 우측은 X 버튼(right:8 + 22px) 자리 확보 */
+    max-width: 100%;
+    padding: 10px 30px 10px 12px; /* 우측은 X 버튼(right:6 + 20px) 자리 확보 */
     background: var(--bg-2);
     border: 1px solid var(--border-default);
     border-radius: var(--r-md);
@@ -1731,7 +1731,7 @@
     min-width: 0;
 }
 .toast__title {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     line-height: 1.3;
     color: var(--text-primary);
@@ -1746,17 +1746,17 @@
     color: var(--danger);
 }
 .toast__body {
-    font-size: 14px;
+    font-size: 12.5px;
     line-height: 1.45;
     color: var(--text-secondary);
     word-break: break-word;
 }
 .toast__close {
     position: absolute;
-    top: 8px;
-    right: 8px;
-    width: 22px;
-    height: 22px;
+    top: 7px;
+    right: 6px;
+    width: 20px;
+    height: 20px;
     display: flex;
     align-items: center;
     justify-content: center;
