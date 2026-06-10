@@ -6,6 +6,7 @@ export { Modal } from './Modal';
 export { ShapefileUploadModal } from './ShapefileUploadModal';
 export { ConfirmProvider, useConfirm } from './ConfirmProvider';
 export type { ConfirmOptions } from './ConfirmProvider';
+export { SearchSelect, type SearchSelectOption } from './SearchSelect';
 export { Sparkline } from './Sparkline';
 export { Quicklook } from './Quicklook';
 export { MapCanvas, Footprint, type MapTool, type MapFootprint, type MapFocus, type MapPoint, type MapRasterOverlay, type MapVelocityLegend, type FootprintKind, type Basemap } from './MapCanvas';
