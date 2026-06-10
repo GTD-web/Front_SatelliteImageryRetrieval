@@ -12,7 +12,6 @@ import { useRouter } from 'next/navigation';
 
 import { useToast, type MapFocus, type MapFootprint, type MapTool } from '@/_ui/hifi';
 import type { DrawnGeometry } from '@/_ui/hifi/MapCanvas';
-import type { IAoisService } from '../../_services/aois.service.interface';
 import type { AoisUI } from '../../_mocks/aois.ui-interface';
 import { APPLY_TARGET_PATH, aoiRingToBounds, aoiToRing, type ApplyTarget } from '../../_constants/aois-apply';
 import { useAoiListQuery } from './queries/use-aoi-list-query';
@@ -52,7 +51,7 @@ interface AoisContextValue {
 
 const AoisContext = createContext<AoisContextValue | undefined>(undefined);
 
-export function AoisProvider({ children, uiService }: { children: ReactNode; uiService: IAoisService }) {
+export function AoisProvider({ children }: { children: ReactNode }) {
     const router = useRouter();
     const toast = useToast();
 
@@ -65,11 +64,9 @@ export function AoisProvider({ children, uiService }: { children: ReactNode; uiS
     /** 목록 클릭 시 지도를 해당 AOI 로 줌인시키는 신호 */
     const [focus, setFocus] = useState<MapFocus | null>(null);
 
-    const { aois, isLoading, error, listKey } = useAoiListQuery({ service: uiService });
+    const { aois, isLoading, error } = useAoiListQuery();
 
     const commands = useAoiCommands({
-        service: uiService,
-        listKey,
         onAoiCreated: setSelected,
         onAoiRemoved: (id) => setSelected((cur) => (cur === id ? null : cur)),
     });

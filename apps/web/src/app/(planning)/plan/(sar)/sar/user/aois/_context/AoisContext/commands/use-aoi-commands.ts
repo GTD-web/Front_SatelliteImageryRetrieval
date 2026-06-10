@@ -3,56 +3,43 @@
 /**
  * AOI 등록/수정/삭제 mutations
  *
- * - 각 mutation 성공 후 listKey 를 mutate 하여 목록 SWR 을 재검증한다.
- * - 토스트/확인(confirm) 피드백은 여기서 처리한다(UI 컴포넌트는 Context 함수만 호출).
+ * 공유 `SavedAoisContext`(localStorage)를 통해 변경하므로, search / insar-request 등
+ * 다른 페이지의 AOI 라이브러리와 즉시 동기화된다. 토스트/확인(confirm) 피드백은 여기서 처리한다.
  */
 import { useCallback } from 'react';
-import { mutate } from 'swr';
 
 import { useConfirm, useToast } from '@/_ui/hifi';
-import type { IAoisService } from '../../../_services/aois.service.interface';
+import { useSavedAois } from '@/_shared/contexts/SavedAoisContext';
 import type { AoisUI } from '../../../_mocks/aois.ui-interface';
 
 interface Params {
-    service: IAoisService;
-    listKey: readonly unknown[];
     /** 등록된 AOI 를 선택 상태로 만들기 위한 콜백 */
     onAoiCreated?: (id: string) => void;
     /** 삭제된 AOI 가 현재 선택 항목이면 해제하기 위한 콜백 */
     onAoiRemoved?: (id: string) => void;
 }
 
-export function useAoiCommands({ service, listKey, onAoiCreated, onAoiRemoved }: Params) {
+export function useAoiCommands({ onAoiCreated, onAoiRemoved }: Params) {
     const toast = useToast();
     const confirm = useConfirm();
+    const { save, rename, remove } = useSavedAois();
 
     const AOI를_등록한다 = useCallback(
-        async (input: AoisUI.CreateAoiInput) => {
-            const res = await service.AOI를_등록한다(input);
-            await mutate(listKey);
-            if (res.success && res.data) {
-                onAoiCreated?.(res.data.id);
-                toast(`"${input.name}" 등록됨`, { tone: 'success' });
-            } else if (!res.success) {
-                toast(res.message, { tone: 'danger' });
-            }
-            return res;
+        (input: AoisUI.CreateAoiInput) => {
+            const created = save(input);
+            onAoiCreated?.(created.id);
+            toast(`"${input.name}" 등록됨`, { tone: 'success' });
+            return created;
         },
-        [service, listKey, toast, onAoiCreated],
+        [save, toast, onAoiCreated],
     );
 
     const AOI를_수정한다 = useCallback(
-        async (input: AoisUI.RenameAoiInput) => {
-            const res = await service.AOI를_수정한다(input);
-            await mutate(listKey);
-            if (res.success) {
-                toast(`"${input.name}" 으로 변경됨`, { tone: 'success' });
-            } else {
-                toast(res.message, { tone: 'danger' });
-            }
-            return res;
+        (input: AoisUI.RenameAoiInput) => {
+            rename(input.id, input.name, input.description);
+            toast(`"${input.name}" 으로 변경됨`, { tone: 'success' });
         },
-        [service, listKey, toast],
+        [rename, toast],
     );
 
     const AOI를_삭제한다 = useCallback(
@@ -64,17 +51,11 @@ export function useAoiCommands({ service, listKey, onAoiCreated, onAoiRemoved }:
                 danger: true,
             });
             if (!ok) return;
-            const res = await service.AOI를_삭제한다(aoi.id);
-            await mutate(listKey);
-            if (res.success) {
-                onAoiRemoved?.(aoi.id);
-                toast(`"${aoi.name}" 삭제됨`);
-            } else {
-                toast(res.message, { tone: 'danger' });
-            }
-            return res;
+            remove(aoi.id);
+            onAoiRemoved?.(aoi.id);
+            toast(`"${aoi.name}" 삭제됨`);
         },
-        [service, listKey, toast, confirm, onAoiRemoved],
+        [remove, confirm, toast, onAoiRemoved],
     );
 
     return {

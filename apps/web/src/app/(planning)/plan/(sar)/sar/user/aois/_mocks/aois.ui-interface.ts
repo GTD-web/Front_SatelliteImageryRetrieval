@@ -1,23 +1,10 @@
 /**
- * 저장된 AOI 라이브러리 · UI 타입 (Plan / Current 공용)
+ * 저장된 AOI 라이브러리 · UI 타입
  *
- * BE 응답 DTO 가 아니라, 화면이 소비하는 UI 모델만 정의한다.
- * Plan(Mock) 과 Current(실제 API) 가 동일하게 구현하는 계약의 기반 타입.
+ * AOI 라이브러리는 백엔드 리소스가 아니라 앱 전역 공유 클라이언트 상태(`SavedAoisContext`)이다.
+ * `Aoi` 는 `SavedAoi` 와 동일 구조이며, 화면이 소비하는 UI 모델만 정의한다.
  */
 export namespace AoisUI {
-    /** 공통 서비스 응답 (데이터 없음) */
-    export interface ServiceResponse {
-        success: boolean;
-        message: string;
-    }
-
-    /** 공통 서비스 응답 (데이터 포함) */
-    export interface ServiceResponseWithData<T = unknown> {
-        success: boolean;
-        data?: T;
-        message: string;
-    }
-
     /** 저장된 AOI(직사각형 bbox) 한 건 */
     export interface Aoi {
         id: string;
@@ -37,14 +24,6 @@ export namespace AoisUI {
         nwLon: number;
         seLat: number;
         seLon: number;
-    }
-
-    export interface AoiListParams {
-        keyword?: string;
-    }
-
-    export interface AoiListResponse {
-        aois: Aoi[];
     }
 
     /** 새 AOI 등록 입력 */
