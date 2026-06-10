@@ -79,6 +79,14 @@ export interface MapRasterOverlay {
     opacity?: number;
 }
 
+/** 특정 영역으로 뷰를 줌인/이동시키는 명령형 신호. `key` 가 바뀔 때마다 fit 이 실행된다. */
+export interface MapFocus {
+    /** Ring or coord list as [lon, lat] pairs (EPSG:4326) */
+    coords: Array<[number, number]>;
+    /** 같은 영역이라도 다시 줌인하려면 key 를 새 값으로 바꿔 전달 */
+    key: string;
+}
+
 /** `legend === 'velocity'` 일 때 범례 외관을 호출자가 결정한다. 미지정 항목은 기본값을 쓴다. */
 export interface MapVelocityLegend {
     /** 범례 헤더 — 기본 "평균 속도 (mm/yr)" */
@@ -143,6 +151,9 @@ interface Props {
     /** Change this value to force the view to refit the current footprints/aoi.
      *  When omitted, the map fits only once on first data load. */
     fitKey?: string;
+    /** 전체 footprints 대상인 `fitKey` 와 달리, 이 좌표 범위로만 애니메이션 줌인한다
+     *  (예: 목록에서 AOI 클릭). `key` 가 같으면 무시되어 이후 팬/줌을 방해하지 않는다. */
+    focus?: MapFocus | null;
 }
 
 const COLORS = {
@@ -263,6 +274,7 @@ export function MapCanvas({
     showBasemapSwitch = true,
     interactive = true,
     fitKey,
+    focus,
 }: Props) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<Map | null>(null);
@@ -857,6 +869,20 @@ export function MapCanvas({
             lastFitKeyRef.current = fitKey;
         }
     }, [fitSignature, footprints, aoi, raster, fitKey]);
+
+    // focus — 특정 영역으로 줌인. key 가 바뀔 때만 실행되어, 사용자가 이후 팬/줌해도
+    // 같은 focus 객체 때문에 뷰가 되돌아가지 않는다.
+    const lastFocusKeyRef = useRef<string | null>(null);
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !focus || focus.coords.length < 2) return;
+        if (focus.key === lastFocusKeyRef.current) return;
+        lastFocusKeyRef.current = focus.key;
+        const extent = boundingExtent(focus.coords.map(([lon, lat]) => fromLonLat([lon, lat])));
+        const view = map.getView();
+        view.cancelAnimations();
+        view.fit(extent, { padding: [40, 40, 40, 40], maxZoom: 13, duration: 350 });
+    }, [focus]);
 
     const handleZoom = (delta: number) => {
         const view = mapRef.current?.getView();

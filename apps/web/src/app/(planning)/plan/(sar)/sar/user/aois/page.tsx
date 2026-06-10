@@ -10,11 +10,11 @@ import {
     type SavedAoi,
 } from '@/_shared/contexts/SavedAoisContext';
 import {
-    Icon,
     MapCanvas,
     Modal,
     useConfirm,
     useToast,
+    type MapFocus,
     type MapFootprint,
     type MapTool,
 } from '@/_ui/hifi';
@@ -37,11 +37,12 @@ export default function AoisPage() {
 
     const [q, setQ] = useState('');
     const [selected, setSelected] = useState<string | null>(null);
-    const [createOpen, setCreateOpen] = useState(false);
-    /** 지도에서 그려 캡처한 초기 좌표(있으면 등록 모달을 prefill). 직접 입력 시 null. */
+    /** 지도에서 그려 캡처한 좌표. 채워지면 등록 모달이 prefill 된 채로 열린다. */
     const [draft, setDraft] = useState<AoiBounds | null>(null);
     const [editing, setEditing] = useState<SavedAoi | null>(null);
     const [activeTool, setActiveTool] = useState<MapTool | undefined>(undefined);
+    /** 목록 클릭 시 지도를 해당 AOI 로 줌인시키는 신호 */
+    const [focus, setFocus] = useState<MapFocus | null>(null);
 
     const filtered = list.filter(
         (a) =>
@@ -63,6 +64,12 @@ export default function AoisPage() {
             })),
         [filtered, selected],
     );
+
+    /** 목록 항목 클릭 — 선택 강조 + 지도 줌인. 같은 항목을 다시 클릭해도 재줌인되도록 key 에 시각 포함. */
+    const focusAoi = (a: SavedAoi) => {
+        setSelected(a.id);
+        setFocus({ coords: aoiToRing(a), key: `${a.id}:${Date.now()}` });
+    };
 
     const goApply = (a: SavedAoi, target: 'search' | 'insar') => {
         const path =
@@ -92,17 +99,11 @@ export default function AoisPage() {
                 const bounds = aoiRingToBounds(coords);
                 if (bounds) {
                     setDraft(bounds);
-                    setCreateOpen(true);
                     toast('AOI 영역이 캡처되었습니다', { tone: 'success' });
                 }
             }
         }
         setActiveTool(undefined);
-    };
-
-    const openManualCreate = () => {
-        setDraft(null);
-        setCreateOpen(true);
     };
 
     return (
@@ -126,13 +127,6 @@ export default function AoisPage() {
                             value={q}
                             onChange={(e) => setQ(e.target.value)}
                         />
-                        <button
-                            type="button"
-                            className="btn btn--primary btn--sm"
-                            onClick={openManualCreate}
-                        >
-                            <Icon name="plus" size={13} /> 새 AOI 등록
-                        </button>
                     </div>
                     <div style={{ flex: 1, overflow: 'auto' }}>
                         {filtered.length === 0 ? (
@@ -147,9 +141,9 @@ export default function AoisPage() {
                                     className="muted"
                                     style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5 }}
                                 >
-                                    오른쪽 지도에서 사각형을 그리거나
+                                    오른쪽 지도에서 <b>사각형</b> 도구로
                                     <br />
-                                    상단 <b>새 AOI 등록</b> 버튼으로 추가하세요.
+                                    영역을 그려 새 AOI 를 등록하세요.
                                 </div>
                             </div>
                         ) : null}
@@ -164,7 +158,7 @@ export default function AoisPage() {
                                     background:
                                         selected === a.id ? 'var(--accent-soft)' : undefined,
                                 }}
-                                onClick={() => setSelected(a.id)}
+                                onClick={() => focusAoi(a)}
                             >
                                 <div className="row gap-3" style={{ alignItems: 'flex-start' }}>
                                     <AoiThumbnail
@@ -282,6 +276,7 @@ export default function AoisPage() {
                                     footprints={footprints}
                                     center={[129.0, 36.2]}
                                     zoom={7}
+                                    focus={focus}
                                     activeTool={activeTool}
                                     tools={['bbox']}
                                     onToolSelect={(t) =>
@@ -316,18 +311,14 @@ export default function AoisPage() {
                 </div>
             </div>
 
-            {createOpen ? (
+            {draft ? (
                 <CreateAoiModal
                     initial={draft}
-                    onClose={() => {
-                        setCreateOpen(false);
-                        setDraft(null);
-                    }}
+                    onClose={() => setDraft(null)}
                     onCreate={(input) => {
                         const created = save(input);
                         setSelected(created.id);
                         toast(`"${input.name}" 등록됨`, { tone: 'success' });
-                        setCreateOpen(false);
                         setDraft(null);
                     }}
                 />
@@ -362,17 +353,17 @@ function CreateAoiModal({
     onClose,
     onCreate,
 }: {
-    initial: AoiBounds | null;
+    initial: AoiBounds;
     onClose: () => void;
     onCreate: (input: CreateAoiInput) => void;
 }) {
     const toast = useToast();
     const [name, setName] = useState('');
     const [desc, setDesc] = useState('');
-    const [nwLat, setNwLat] = useState(initial ? initial.nwLat.toFixed(4) : '');
-    const [nwLon, setNwLon] = useState(initial ? initial.nwLon.toFixed(4) : '');
-    const [seLat, setSeLat] = useState(initial ? initial.seLat.toFixed(4) : '');
-    const [seLon, setSeLon] = useState(initial ? initial.seLon.toFixed(4) : '');
+    const [nwLat, setNwLat] = useState(initial.nwLat.toFixed(4));
+    const [nwLon, setNwLon] = useState(initial.nwLon.toFixed(4));
+    const [seLat, setSeLat] = useState(initial.seLat.toFixed(4));
+    const [seLon, setSeLon] = useState(initial.seLon.toFixed(4));
 
     const onSubmit = () => {
         const trimmed = name.trim();
@@ -385,7 +376,7 @@ function CreateAoiModal({
         const slat = parseFloat(seLat);
         const slon = parseFloat(seLon);
         if (![nlat, nlon, slat, slon].every(Number.isFinite)) {
-            toast('지도에서 사각형을 그리거나 NW/SE 좌표를 입력해주세요', { tone: 'warning' });
+            toast('NW/SE 좌표를 올바르게 입력해주세요', { tone: 'warning' });
             return;
         }
         if (nlat <= slat || slon <= nlon) {
@@ -405,11 +396,7 @@ function CreateAoiModal({
     return (
         <Modal
             title="새 AOI 등록"
-            sub={
-                initial
-                    ? '지도에서 그린 영역의 좌표가 채워졌습니다. 이름을 입력해 등록하세요.'
-                    : '오른쪽 지도에서 사각형을 그리면 좌표가 자동으로 채워집니다. 좌표를 직접 입력해 등록할 수도 있습니다.'
-            }
+            sub="지도에서 그린 영역의 좌표가 채워졌습니다. 이름을 입력해 등록하세요."
             onClose={onClose}
             footer={(close) => (
                 <>

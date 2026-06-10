@@ -8,7 +8,7 @@ export { ConfirmProvider, useConfirm } from './ConfirmProvider';
 export type { ConfirmOptions } from './ConfirmProvider';
 export { Sparkline } from './Sparkline';
 export { Quicklook } from './Quicklook';
-export { MapCanvas, Footprint, type MapTool, type MapFootprint, type MapPoint, type MapRasterOverlay, type MapVelocityLegend, type FootprintKind, type Basemap } from './MapCanvas';
+export { MapCanvas, Footprint, type MapTool, type MapFootprint, type MapFocus, type MapPoint, type MapRasterOverlay, type MapVelocityLegend, type FootprintKind, type Basemap } from './MapCanvas';
 export { HifiPrefsProvider, useHifiPrefs } from './HifiPrefsProvider';
 export type { Theme, Density } from './HifiPrefsProvider';
 export { SideNav } from './SideNav';
