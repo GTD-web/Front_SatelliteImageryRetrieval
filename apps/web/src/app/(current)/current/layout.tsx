@@ -8,17 +8,17 @@ import {
     ConfirmProvider,
     HifiPrefsProvider,
     NotificationsOverlayProvider,
+    SideNav,
     ToastProvider,
 } from '@/_ui/hifi';
 import { ModeBadge } from '@/_ui/ModeBadge';
-import { ThemeToggle } from '@/_ui/ThemeToggle';
 
 /**
  * Current(실제 API) 환경 레이아웃.
  *
  * current 페이지들은 plan 의 Context/UI 를 그대로 재사용하므로, plan layout 과 동일한
- * hifi 프로바이더 스택(Toast/Confirm/Cart/SavedAois/오버레이)을 제공해야 한다.
- * (SideNav 는 `/plan/sar` 경로 고정이라 제외 — current 네비게이션은 별도 과제)
+ * hifi 프로바이더 스택 + SideNav 를 제공한다. SideNav 는 경로 그룹(plan/current)을 감지해
+ * current 내에서 네비게이션이 current 경로로 유지된다. 상단 얇은 바의 ModeBadge 로 환경을 표시한다.
  */
 export default function CurrentLayout({ children }: { children: ReactNode }) {
     return (
@@ -30,18 +30,41 @@ export default function CurrentLayout({ children }: { children: ReactNode }) {
                             <SavedAoisProvider>
                                 <CartOverlayProvider>
                                     <NotificationsOverlayProvider>
-                                        <div className="flex h-screen flex-col bg-app text-content">
-                                            <header className="flex items-center justify-between border-b border-line bg-surface px-4 py-2">
-                                                <h1 className="text-base font-bold">Sentinel 데이터 플랫폼</h1>
-                                                <div className="flex items-center gap-3">
-                                                    <ThemeToggle />
-                                                    <ModeBadge />
-                                                    <span className="text-xs text-content-muted">
-                                                        로그인 사용자
+                                        <div
+                                            style={{
+                                                display: 'flex',
+                                                flexDirection: 'row',
+                                                height: '100%',
+                                                minHeight: 0,
+                                            }}
+                                        >
+                                            <SideNav />
+                                            <main
+                                                style={{
+                                                    flex: 1,
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    minWidth: 0,
+                                                    minHeight: 0,
+                                                    background: 'var(--bg-1)',
+                                                }}
+                                            >
+                                                <div
+                                                    className="row gap-2"
+                                                    style={{
+                                                        alignItems: 'center',
+                                                        justifyContent: 'flex-end',
+                                                        padding: '6px 16px',
+                                                        borderBottom: '1px solid var(--border-subtle)',
+                                                    }}
+                                                >
+                                                    <span className="faint" style={{ fontSize: 12 }}>
+                                                        실제 API 환경
                                                     </span>
+                                                    <ModeBadge />
                                                 </div>
-                                            </header>
-                                            <main className="flex-1 overflow-hidden">{children}</main>
+                                                {children}
+                                            </main>
                                         </div>
                                     </NotificationsOverlayProvider>
                                 </CartOverlayProvider>
