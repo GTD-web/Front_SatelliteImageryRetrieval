@@ -56,6 +56,7 @@ export function FailedDownloadsTable() {
                             <th style={{ width: 56 }}>미리보기</th>
                             <th style={{ width: 64 }}>종류</th>
                             <th>Scene</th>
+                            <th style={{ width: 110 }}>Job ID</th>
                             <th style={{ width: 110 }}>사유</th>
                             <th>상세</th>
                             <th>이름</th>
@@ -89,14 +90,12 @@ export function FailedDownloadsTable() {
                                     </span>
                                 </td>
                                 <td>
-                                    <div className="col" style={{ gap: 2 }}>
-                                        <div className="mono" style={{ fontSize: 11.5 }}>
-                                            {j.scene}
-                                        </div>
-                                        <div className="mono faint" style={{ fontSize: 11 }}>
-                                            {j.id}
-                                        </div>
+                                    <div className="mono" style={{ fontSize: 11.5 }}>
+                                        {j.scene}
                                     </div>
+                                </td>
+                                <td className="mono faint" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>
+                                    {j.id}
                                 </td>
                                 <td>
                                     <span className={`badge ${KIND_TONE[j.kind]}`} style={{ fontSize: 10 }}>

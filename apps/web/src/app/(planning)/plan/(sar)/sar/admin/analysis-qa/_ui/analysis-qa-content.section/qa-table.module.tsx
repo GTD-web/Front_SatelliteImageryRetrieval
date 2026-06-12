@@ -48,6 +48,7 @@ export function QaTable() {
                 <thead>
                     <tr>
                         <th>산출물</th>
+                        <th>기간</th>
                         <th>타입</th>
                         <th className="num">LOS 속도</th>
                         <th className="num">코히런스</th>
@@ -69,9 +70,9 @@ export function QaTable() {
                             >
                                 <td>
                                     <div style={{ fontWeight: 500, fontSize: 12.5 }}>{p.name}</div>
-                                    <div className="mono tabular faint" style={{ fontSize: 11 }}>
-                                        {p.range}
-                                    </div>
+                                </td>
+                                <td className="mono tabular faint" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
+                                    {p.range}
                                 </td>
                                 <td>
                                     <span className={`badge ${typeBadge(p.type)}`} style={{ fontSize: 10 }}>
